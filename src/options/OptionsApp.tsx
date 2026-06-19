@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
 import { 
   User, Briefcase, Settings, History, FileText, Sparkles, Plus, Trash2, 
   Save, CheckCircle, Database, ShieldAlert, Award, FileCode, Search, Copy, 
-  Settings2, HelpCircle, HardDriveDownload, CloudLightning, ArrowUpRight, Sliders
+  Settings2, HelpCircle, HardDriveDownload, CloudLightning, ArrowUpRight, Sliders, GraduationCap,
+  Key, Eye, EyeOff, Star
 } from 'lucide-react';
 import { 
   getProfiles, saveProfile, deleteProfile,
@@ -10,12 +10,15 @@ import {
   getTemplates, deleteTemplate,
   getManualMappings, deleteManualMapping,
   getHistory, clearHistory,
-  getAppSettings, saveAppSettings, getActiveProfileId, setActiveProfileId 
+  getAppSettings, saveAppSettings, getActiveProfileId, setActiveProfileId,
+  getCredentials, deleteCredential
 } from '../shared/db';
-import { UserProfile, Resume, WebsiteTemplate, ManualMapping, FillHistoryEntry, AppSettings } from '../shared/types';
+import { UserProfile, Resume, WebsiteTemplate, ManualMapping, FillHistoryEntry, AppSettings, EducationInfo, SavedCredential } from '../shared/types';
+
+import React, { useState, useEffect } from 'react';
 
 export default function OptionsApp() {
-  const [activeTab, setActiveTab] = useState<'profiles' | 'resumes' | 'templates' | 'history' | 'settings'>('profiles');
+  const [activeTab, setActiveTab] = useState<'profiles' | 'resumes' | 'templates' | 'history' | 'settings' | 'credentials'>('profiles');
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState('default');
   const [resumes, setResumes] = useState<Resume[]>([]);
@@ -25,6 +28,8 @@ export default function OptionsApp() {
   const [appSettings, setAppSettingsState] = useState<AppSettings | null>(null);
   const [activeProfileIdState, setActiveProfileIdState] = useState('default');
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [credentials, setCredentials] = useState<SavedCredential[]>([]);
+  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
 
   // Profile Form states
   const [profileName, setProfileName] = useState('');
@@ -40,6 +45,12 @@ export default function OptionsApp() {
     currentCTC: '', expectedCTC: '', noticePeriod: '', preferredLocation: ''
   });
   const [customFields, setCustomFields] = useState<{ id: string; name: string; value: string }[]>([]);
+  const [education, setEducation] = useState<EducationInfo>({
+    tenth: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
+    twelfthOrDiploma: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
+    ug: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
+    pg: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
+  });
 
   // Search filter for templates and mappings
   const [searchQuery, setSearchQuery] = useState('');
@@ -75,6 +86,9 @@ export default function OptionsApp() {
 
       const settings = await getAppSettings();
       setAppSettingsState(settings);
+
+      const allCreds = await getCredentials();
+      setCredentials(allCreds);
     } catch (e) {
       console.error("Failed to load options data", e);
     }
@@ -87,12 +101,24 @@ export default function OptionsApp() {
       setProfessional(profile.professional);
       setJobInfo(profile.jobInfo);
       setCustomFields(profile.customFields || []);
+      setEducation(profile.education || {
+        tenth: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
+        twelfthOrDiploma: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
+        ug: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
+        pg: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
+      });
     } else {
       setProfileName('New Profile');
       setPersonal({ fullName: '', firstName: '', lastName: '', email: '', phone: '', address: '', city: '', state: '', country: '', postalCode: '' });
       setProfessional({ jobTitle: '', experience: '', currentCompany: '', skills: '', education: '', degree: '', college: '', linkedin: '', github: '', portfolio: '' });
       setJobInfo({ currentCTC: '', expectedCTC: '', noticePeriod: '', preferredLocation: '' });
       setCustomFields([]);
+      setEducation({
+        tenth: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
+        twelfthOrDiploma: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
+        ug: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
+        pg: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
+      });
     }
   };
 
@@ -125,6 +151,7 @@ export default function OptionsApp() {
       name: profileName,
       personal,
       professional,
+      education,
       jobInfo,
       customFields
     };
@@ -232,7 +259,8 @@ export default function OptionsApp() {
           fileName: file.name,
           fileType: file.name.split('.').pop() || 'pdf',
           base64Data,
-          uploadedAt: new Date().toISOString()
+          uploadedAt: new Date().toISOString(),
+          isDefault: resumes.length === 0
         };
 
         await saveResume(newResume);
@@ -325,6 +353,41 @@ export default function OptionsApp() {
       showStatus("Settings saved successfully!");
     } catch (e) {
       showStatus("Failed to save settings", "error");
+    }
+  };
+
+  const handleSetDefaultResume = async (id: string) => {
+    try {
+      const updated = resumes.map(r => ({
+        ...r,
+        isDefault: r.id === id
+      }));
+      for (const r of updated) {
+        await saveResume(r);
+      }
+      setResumes(updated);
+      showStatus("Default resume updated!");
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        chrome.runtime.sendMessage({ action: 'notifyDataUpdated' });
+      }
+    } catch (err) {
+      showStatus("Failed to update default resume", "error");
+    }
+  };
+
+  const handleDeleteCredential = async (id: string) => {
+    if (confirm("Delete this saved password?")) {
+      try {
+        await deleteCredential(id);
+        showStatus("Credential deleted successfully!");
+        const allCreds = await getCredentials();
+        setCredentials(allCreds);
+        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+          chrome.runtime.sendMessage({ action: 'notifyDataUpdated' });
+        }
+      } catch (err) {
+        showStatus("Failed to delete credential", "error");
+      }
     }
   };
 
@@ -427,6 +490,18 @@ export default function OptionsApp() {
             >
               <History className="w-4 h-4" />
               Fill Analytics
+            </button>
+
+            <button
+              onClick={() => setActiveTab('credentials')}
+              className={`w-full py-2.5 px-4 rounded-xl text-left text-xs font-semibold flex items-center gap-3 cursor-pointer transition ${
+                activeTab === 'credentials' 
+                  ? 'bg-brand-600/10 text-brand-400 border border-brand-500/20' 
+                  : 'text-slate-400 hover:bg-slate-850 hover:text-slate-200 border border-transparent'
+              }`}
+            >
+              <Key className="w-4 h-4" />
+              Passwords Vault
             </button>
 
             <button
@@ -653,7 +728,120 @@ export default function OptionsApp() {
                   </div>
                 </div>
 
-                {/* 3. Job Search Info */}
+                {/* 3. Educational Details */}
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <GraduationCap className="w-4.5 h-4.5 text-brand-400" />
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-350">Educational Details</h3>
+                  </div>
+                  <div className="flex flex-col gap-6 bg-slate-900/30 border border-slate-850 p-5 rounded-2xl">
+                    {/* 10th Class */}
+                    <div>
+                      <h4 className="text-xs font-semibold text-brand-400 mb-3 pb-1 border-b border-slate-800">10th Standard / Matriculation</h4>
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                        <div className="col-span-2">
+                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">School Name</label>
+                          <input type="text" value={education.tenth.schoolOrCollege} onChange={(e) => setEducation({...education, tenth: {...education.tenth, schoolOrCollege: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Board / Degree</label>
+                          <input type="text" value={education.tenth.degree} onChange={(e) => setEducation({...education, tenth: {...education.tenth, degree: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" placeholder="e.g. CBSE, ICSE" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Passing Year</label>
+                          <input type="text" value={education.tenth.passingYear} onChange={(e) => setEducation({...education, tenth: {...education.tenth, passingYear: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Grade / CGPA / %</label>
+                          <input type="text" value={education.tenth.grade} onChange={(e) => setEducation({...education, tenth: {...education.tenth, grade: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 12th Class / Diploma */}
+                    <div>
+                      <h4 className="text-xs font-semibold text-brand-400 mb-3 pb-1 border-b border-slate-800">12th Standard / Diploma / Intermediate</h4>
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                        <div className="col-span-2">
+                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">School / College Name</label>
+                          <input type="text" value={education.twelfthOrDiploma.schoolOrCollege} onChange={(e) => setEducation({...education, twelfthOrDiploma: {...education.twelfthOrDiploma, schoolOrCollege: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Board / Degree</label>
+                          <input type="text" value={education.twelfthOrDiploma.degree} onChange={(e) => setEducation({...education, twelfthOrDiploma: {...education.twelfthOrDiploma, degree: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" placeholder="e.g. HSC, CBSE, Diploma" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Stream / Field</label>
+                          <input type="text" value={education.twelfthOrDiploma.fieldOfStudy} onChange={(e) => setEducation({...education, twelfthOrDiploma: {...education.twelfthOrDiploma, fieldOfStudy: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" placeholder="e.g. Science, Commerce" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Passing Year</label>
+                          <input type="text" value={education.twelfthOrDiploma.passingYear} onChange={(e) => setEducation({...education, twelfthOrDiploma: {...education.twelfthOrDiploma, passingYear: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Grade / CGPA / %</label>
+                          <input type="text" value={education.twelfthOrDiploma.grade} onChange={(e) => setEducation({...education, twelfthOrDiploma: {...education.twelfthOrDiploma, grade: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Undergraduate (UG) */}
+                    <div>
+                      <h4 className="text-xs font-semibold text-brand-400 mb-3 pb-1 border-b border-slate-800">Undergraduate (UG)</h4>
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                        <div className="col-span-2">
+                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">College / University</label>
+                          <input type="text" value={education.ug.schoolOrCollege} onChange={(e) => setEducation({...education, ug: {...education.ug, schoolOrCollege: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Degree Name</label>
+                          <input type="text" value={education.ug.degree} onChange={(e) => setEducation({...education, ug: {...education.ug, degree: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" placeholder="e.g. B.Tech, B.Sc, BA" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Major / Specialization</label>
+                          <input type="text" value={education.ug.fieldOfStudy} onChange={(e) => setEducation({...education, ug: {...education.ug, fieldOfStudy: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" placeholder="e.g. Computer Science" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Passing Year</label>
+                          <input type="text" value={education.ug.passingYear} onChange={(e) => setEducation({...education, ug: {...education.ug, passingYear: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Grade / CGPA / %</label>
+                          <input type="text" value={education.ug.grade} onChange={(e) => setEducation({...education, ug: {...education.ug, grade: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Postgraduate (PG) */}
+                    <div>
+                      <h4 className="text-xs font-semibold text-brand-400 mb-3 pb-1 border-b border-slate-800">Postgraduate (PG)</h4>
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                        <div className="col-span-2">
+                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">College / University</label>
+                          <input type="text" value={education.pg.schoolOrCollege} onChange={(e) => setEducation({...education, pg: {...education.pg, schoolOrCollege: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Degree Name</label>
+                          <input type="text" value={education.pg.degree} onChange={(e) => setEducation({...education, pg: {...education.pg, degree: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" placeholder="e.g. M.Tech, MBA, MS" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Major / Specialization</label>
+                          <input type="text" value={education.pg.fieldOfStudy} onChange={(e) => setEducation({...education, pg: {...education.pg, fieldOfStudy: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" placeholder="e.g. Data Science" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Passing Year</label>
+                          <input type="text" value={education.pg.passingYear} onChange={(e) => setEducation({...education, pg: {...education.pg, passingYear: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Grade / CGPA / %</label>
+                          <input type="text" value={education.pg.grade} onChange={(e) => setEducation({...education, pg: {...education.pg, grade: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. Compensation & Notice */}
                 <div>
                   <div className="flex items-center gap-2 mb-3">
                     <Award className="w-4.5 h-4.5 text-brand-400" />
@@ -679,7 +867,7 @@ export default function OptionsApp() {
                   </div>
                 </div>
 
-                {/* 4. Custom User-Defined Fields */}
+                {/* 5. Custom User-Defined Fields */}
                 <div>
                   <div className="flex justify-between items-center mb-3">
                     <div className="flex items-center gap-2">
@@ -771,12 +959,28 @@ export default function OptionsApp() {
                         <p className="text-[10px] text-slate-500 mt-0.5">Uploaded {new Date(r.uploadedAt).toLocaleDateString()}</p>
                       </div>
                     </div>
-                    <button
-                      onClick={() => handleDeleteResume(r.id)}
-                      className="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-900 border border-slate-850 text-slate-400 hover:text-rose-400 transition cursor-pointer"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-1 shrink-0 ml-2">
+                      {r.isDefault ? (
+                        <span className="text-[9px] font-semibold text-brand-400 bg-brand-950/60 px-1.5 py-0.5 rounded border border-brand-800/40 flex items-center gap-1">
+                          <Star className="w-3 h-3 fill-brand-400" />
+                          Default
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => handleSetDefaultResume(r.id)}
+                          className="text-[9px] font-semibold text-slate-500 hover:text-slate-350 hover:underline cursor-pointer flex items-center gap-1"
+                        >
+                          <Star className="w-3 h-3" />
+                          Set Default
+                        </button>
+                      )}
+                      <button 
+                        onClick={() => handleDeleteResume(r.id)}
+                        className="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-900 border border-slate-850 text-slate-400 hover:text-rose-450 transition cursor-pointer ml-1"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 ))}
                 {resumes.length === 0 && (
@@ -1103,6 +1307,86 @@ export default function OptionsApp() {
               >
                 Save Preferences
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Tab - Credentials / Passwords Vault */}
+        {activeTab === 'credentials' && (
+          <div className="p-8 overflow-y-auto max-w-5xl mx-auto w-full flex flex-col gap-6 animate-fade-in">
+            <div className="pb-4 border-b border-slate-850 flex justify-between items-center">
+              <div>
+                <h2 className="text-lg font-bold bg-gradient-to-r from-brand-400 to-indigo-300 bg-clip-text text-transparent">Passwords Vault</h2>
+                <p className="text-xs text-slate-500 mt-1">Manage site-specific credentials saved by the auto-fill floating widget.</p>
+              </div>
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-650 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search domain..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="bg-slate-900 border border-slate-850 focus:border-brand-500 rounded-xl pl-9 pr-4 py-1.5 text-xs text-slate-200 focus:outline-none w-60 placeholder:text-slate-650"
+                />
+              </div>
+            </div>
+
+            <div className="bg-slate-900/20 border border-slate-850 rounded-2xl overflow-hidden mt-2">
+              <div className="px-4 py-3 bg-dark-900/50 border-b border-slate-850 text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                Saved Accounts
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-850 text-[10px] text-slate-550 uppercase tracking-wider">
+                      <th className="p-4">Site / Domain</th>
+                      <th className="p-4">Username / Email</th>
+                      <th className="p-4">Password</th>
+                      <th className="p-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-850 text-xs">
+                    {credentials
+                      .filter(c => c.domain.toLowerCase().includes(searchQuery.toLowerCase()) || c.username.toLowerCase().includes(searchQuery.toLowerCase()))
+                      .map(c => {
+                        const isVisible = visiblePasswords[c.id] || false;
+                        return (
+                          <tr key={c.id} className="hover:bg-slate-900/20 text-slate-300">
+                            <td className="p-4 font-semibold text-slate-250">{c.domain}</td>
+                            <td className="p-4 font-mono">{c.username || <span className="text-slate-600">None</span>}</td>
+                            <td className="p-4 font-mono">
+                              <div className="flex items-center gap-2">
+                                <span className="min-w-[100px]">{isVisible ? c.password : '••••••••••••'}</span>
+                                <button
+                                  onClick={() => setVisiblePasswords({ ...visiblePasswords, [c.id]: !isVisible })}
+                                  className="p-1 rounded text-slate-500 hover:text-slate-350 transition hover:bg-slate-800"
+                                >
+                                  {isVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                </button>
+                              </div>
+                            </td>
+                            <td className="p-4 text-right">
+                              <button
+                                onClick={() => handleDeleteCredential(c.id)}
+                                className="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-900 border border-slate-850 text-slate-400 hover:text-rose-450 transition cursor-pointer"
+                                title="Delete credential"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    {credentials.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="text-center py-10 text-slate-650 text-xs">
+                          No credentials saved. Save passwords on login forms using the page floating widget.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}

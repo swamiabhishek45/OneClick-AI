@@ -1,7 +1,8 @@
-import { UserProfile, Resume, ManualMapping, WebsiteTemplate, LearningMapping, DomainRule, FillHistoryEntry, AppSettings } from './types';
+import { UserProfile, Resume, ManualMapping, WebsiteTemplate, LearningMapping, DomainRule, FillHistoryEntry, AppSettings, SavedCredential } from './types';
 
 const DB_NAME = 'OneClickAutofillDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
+
 
 let dbInstance: IDBDatabase | null = null;
 
@@ -56,6 +57,12 @@ export function initDb(): Promise<IDBDatabase> {
       // Domain Rules store
       if (!db.objectStoreNames.contains('domainRules')) {
         db.createObjectStore('domainRules', { keyPath: 'domain' });
+      }
+
+      // Credentials store
+      if (!db.objectStoreNames.contains('credentials')) {
+        const credentialStore = db.createObjectStore('credentials', { keyPath: 'id' });
+        credentialStore.createIndex('domain', 'domain', { unique: false });
       }
     };
   });
@@ -364,5 +371,46 @@ export function setActiveProfileId(id: string): Promise<void> {
       localStorage.setItem('active_profile_id', id);
       resolve();
     }
+  });
+}
+
+// Credentials CRUD
+export async function getCredentials(): Promise<SavedCredential[]> {
+  const store = await getStore('credentials');
+  return new Promise((resolve, reject) => {
+    const request = store.getAll();
+    request.onsuccess = () => resolve(request.result || []);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function getCredentialByDomain(domain: string): Promise<SavedCredential | null> {
+  const db = await initDb();
+  const transaction = db.transaction('credentials', 'readonly');
+  const store = transaction.objectStore('credentials');
+  const index = store.index('domain');
+
+  return new Promise((resolve) => {
+    const request = index.get(domain);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => resolve(null);
+  });
+}
+
+export async function saveCredential(credential: SavedCredential): Promise<void> {
+  const store = await getStore('credentials', 'readwrite');
+  return new Promise((resolve, reject) => {
+    const request = store.put(credential);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function deleteCredential(id: string): Promise<void> {
+  const store = await getStore('credentials', 'readwrite');
+  return new Promise((resolve, reject) => {
+    const request = store.delete(id);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
   });
 }

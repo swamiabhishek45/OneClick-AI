@@ -10,8 +10,54 @@ function isFalsey(val: any): boolean {
   return s === 'false' || s === '0' || s === 'no' || s === 'n' || s === 'off' || s === 'unchecked';
 }
 
+// Bypasses browser restrictions to assign a File object to an input element
+function setFileInputValue(element: HTMLInputElement, base64Data: string, fileName: string, fileType: string): boolean {
+  try {
+    // Convert base64 to blob
+    const byteCharacters = atob(base64Data);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    const blob = new Blob([byteArray], { type: fileType === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    
+    // Create File object
+    const file = new File([blob], fileName, { type: blob.type });
+    
+    // Use DataTransfer to assign files
+    const dataTransfer = new DataTransfer();
+    dataTransfer.items.add(file);
+    element.files = dataTransfer.files;
+    
+    // Dispatch events to notify page scripts
+    const event = new Event('change', { bubbles: true });
+    element.dispatchEvent(event);
+    return true;
+  } catch (err) {
+    console.error("Failed to set file input value programmatically:", err);
+    return false;
+  }
+}
+
+// Extract option value from custom components (Google Forms checkboxes/radios)
+function getCustomOptionValue(element: HTMLElement): string {
+  const dataVal = element.getAttribute('data-value');
+  if (dataVal) return dataVal.trim();
+  
+  const ariaLabel = element.getAttribute('aria-label');
+  if (ariaLabel) return ariaLabel.trim();
+  
+  if (element.textContent) {
+    const txt = element.textContent.trim();
+    if (txt) return txt;
+  }
+  
+  return '';
+}
+
 export function fillField(
-  element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+  element: HTMLElement,
   value: string
 ): boolean {
   try {
@@ -39,12 +85,101 @@ export function fillField(
         if (shouldCheck && !element.checked) {
           setReactValue(element, true, 'checked');
         }
+      } else if (type === 'file') {
+        try {
+          const fileData = JSON.parse(value);
+          if (fileData.base64Data && fileData.fileName) {
+            return setFileInputValue(element, fileData.base64Data, fileData.fileName, fileData.fileType);
+          }
+        } catch (e) {
+          console.error("AutofillEngine failed to parse serialized file payload:", e);
+        }
       } else {
         // Text, email, tel, date, number, etc.
         setReactValue(element, value, 'value');
       }
-    } else if (element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
+    } else if (element instanceof HTMLTextAreaElement) {
       setReactValue(element, value, 'value');
+    } else if (element instanceof HTMLSelectElement) {
+      const targetVal = value.toLowerCase().trim();
+      let matchedOptionValue = '';
+
+      for (let i = 0; i < element.options.length; i++) {
+        const opt = element.options[i];
+        const optVal = opt.value.toLowerCase().trim();
+        const optText = opt.text.toLowerCase().trim();
+
+        if (optVal === targetVal || optText === targetVal || optText.includes(targetVal) || targetVal.includes(optText)) {
+          matchedOptionValue = opt.value;
+          break;
+        }
+      }
+
+      if (matchedOptionValue) {
+        setReactValue(element, matchedOptionValue, 'value');
+      }
+    } else {
+      // Custom Elements (Google Forms radio/checkbox/listbox)
+      const role = element.getAttribute('role');
+      if (role === 'radio') {
+        const optionVal = getCustomOptionValue(element).toLowerCase();
+        const profileVal = String(value).toLowerCase().trim();
+        
+        let shouldSelect = (optionVal === profileVal);
+        if (!shouldSelect && isTruthy(profileVal) && (optionVal === 'yes' || optionVal === 'true' || optionVal === '1')) {
+          shouldSelect = true;
+        } else if (!shouldSelect && isFalsey(profileVal) && (optionVal === 'no' || optionVal === 'false' || optionVal === '0')) {
+          shouldSelect = true;
+        }
+
+        if (shouldSelect) {
+          const isChecked = element.getAttribute('aria-checked') === 'true';
+          if (!isChecked) {
+            element.click();
+          }
+        }
+      } else if (role === 'checkbox') {
+        const optionVal = getCustomOptionValue(element).toLowerCase();
+        const profileVal = String(value).toLowerCase().trim();
+        
+        let shouldSelect = false;
+        if (optionVal === profileVal) {
+          shouldSelect = true;
+        } else {
+          // Check for comma-separated items
+          const items = profileVal.split(',').map(s => s.trim().toLowerCase());
+          if (items.includes(optionVal)) {
+            shouldSelect = true;
+          }
+        }
+
+        if (!shouldSelect && isTruthy(profileVal) && (optionVal === 'yes' || optionVal === 'true' || optionVal === '1' || optionVal === 'y')) {
+          shouldSelect = true;
+        }
+
+        const isChecked = element.getAttribute('aria-checked') === 'true';
+        if (shouldSelect !== isChecked) {
+          element.click();
+        }
+      } else if (role === 'listbox') {
+        const profileVal = String(value).trim();
+        if (profileVal) {
+          // Click to open custom dropdown
+          element.click();
+          // Short delay for options menu rendering
+          setTimeout(() => {
+            const options = document.querySelectorAll('[role="option"]');
+            for (let i = 0; i < options.length; i++) {
+              const opt = options[i] as HTMLElement;
+              const optVal = (opt.getAttribute('data-value') || opt.textContent || '').trim();
+              if (optVal.toLowerCase() === profileVal.toLowerCase()) {
+                opt.click();
+                break;
+              }
+            }
+          }, 100);
+        }
+      }
     }
 
     return true;
@@ -56,7 +191,7 @@ export function fillField(
 
 // Bypasses React and Vue value tracking by calling the native prototype setters directly
 function setReactValue(
-  element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+  element: HTMLElement,
   value: any,
   property: 'value' | 'checked'
 ) {
@@ -90,7 +225,7 @@ function setReactValue(
 
 // Fills multiple fields synchronously
 export function fillFormFields(
-  mappings: { element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement; value: string }[]
+  mappings: { element: HTMLElement; value: string }[]
 ): number {
   let count = 0;
   for (const item of mappings) {

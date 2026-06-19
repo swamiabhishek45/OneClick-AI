@@ -1,31 +1,36 @@
 import { ScannedFieldMetadata } from '../shared/ai';
 
 export function scanFormFields(root: Element | Document = document): {
-  elements: (HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement)[];
+  elements: HTMLElement[];
   metadata: ScannedFieldMetadata[];
 } {
-  const elements: (HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement)[] = [];
+  const elements: HTMLElement[] = [];
   const metadata: ScannedFieldMetadata[] = [];
 
   function recursiveScan(node: Node) {
     if (node.nodeType === Node.ELEMENT_NODE) {
       const el = node as HTMLElement;
 
-      // If it is an input, select, or textarea
+      // If it is an input, select, textarea, or a custom input role (radio, checkbox, listbox)
+      const role = el.getAttribute('role');
+      const isCustomInput = role === 'radio' || role === 'checkbox' || role === 'listbox';
+
       if (
         el instanceof HTMLInputElement ||
         el instanceof HTMLTextAreaElement ||
-        el instanceof HTMLSelectElement
+        el instanceof HTMLSelectElement ||
+        isCustomInput
       ) {
         // Exclude hidden fields and submit buttons
-        const type = el instanceof HTMLInputElement ? el.type : el.tagName.toLowerCase();
+        const type = el instanceof HTMLInputElement ? el.type : (role || el.tagName.toLowerCase());
         const shouldExclude =
           type === 'hidden' ||
           type === 'submit' ||
           type === 'button' ||
           type === 'image' ||
           type === 'reset' ||
-          el.disabled ||
+          el.hasAttribute('disabled') ||
+          el.getAttribute('aria-disabled') === 'true' ||
           ('readOnly' in el && (el as any).readOnly);
 
         if (!shouldExclude) {
@@ -77,7 +82,21 @@ export function scanFormFields(root: Element | Document = document): {
   return { elements, metadata };
 }
 
-function findLabel(input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): string {
+function findLabel(input: HTMLElement): string {
+  // For custom elements, fallback to data-value, aria-label, or textContent
+  const role = input.getAttribute('role');
+  if (role === 'radio' || role === 'checkbox') {
+    const dataVal = input.getAttribute('data-value');
+    if (dataVal && dataVal.trim()) return dataVal.trim();
+    
+    const ariaLabelVal = input.getAttribute('aria-label');
+    if (ariaLabelVal && ariaLabelVal.trim()) return ariaLabelVal.trim();
+    
+    if (input.textContent && input.textContent.trim()) {
+      return input.textContent.trim();
+    }
+  }
+
   // 1. Aria attributes
   let ariaLabel = input.getAttribute('aria-label');
   if (ariaLabel && ariaLabel.trim()) return ariaLabel.trim();
@@ -85,9 +104,11 @@ function findLabel(input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectEle
   let ariaLabelledBy = input.getAttribute('aria-labelledby');
   if (ariaLabelledBy) {
     const rootNode = input.getRootNode() as Document | DocumentFragment;
-    const labelEl = rootNode.getElementById(ariaLabelledBy);
-    if (labelEl && labelEl.textContent && labelEl.textContent.trim()) {
-      return labelEl.textContent.trim();
+    const ids = ariaLabelledBy.split(/\s+/).filter(Boolean);
+    const labelParts = ids.map(id => rootNode.getElementById(id)).filter((el): el is HTMLElement => el !== null);
+    if (labelParts.length > 0) {
+      const combinedText = labelParts.map(el => el.textContent?.trim()).filter(Boolean).join(' ');
+      if (combinedText && combinedText.trim()) return combinedText.trim();
     }
   }
 
@@ -153,4 +174,33 @@ function getSurroundingContext(input: HTMLElement): string {
     return cleaned.length > 150 ? cleaned.substring(0, 150) + '...' : cleaned;
   }
   return '';
+}
+
+// Helper to find login fields (username and password)
+export function findLoginFields(): { username: HTMLInputElement | null; password: HTMLInputElement | null } {
+  const password = document.querySelector('input[type="password"]') as HTMLInputElement;
+  if (!password) return { username: null, password: null };
+  
+  const form = password.closest('form');
+  let username: HTMLInputElement | null = null;
+  
+  if (form) {
+    username = form.querySelector('input[type="email"], input[type="text"]:not([type="password"])') as HTMLInputElement;
+  }
+  
+  if (!username) {
+    const inputs = Array.from(document.querySelectorAll('input'));
+    const passIdx = inputs.indexOf(password);
+    if (passIdx > 0) {
+      for (let i = passIdx - 1; i >= 0; i--) {
+        const input = inputs[i];
+        if (input.type === 'text' || input.type === 'email') {
+          username = input;
+          break;
+        }
+      }
+    }
+  }
+  
+  return { username, password };
 }

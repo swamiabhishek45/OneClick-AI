@@ -1,7 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import WidgetApp from './WidgetApp';
-import { scanFormFields } from './FormScanner';
+import { scanFormFields, findLoginFields } from './FormScanner';
 import { fillFormFields } from './AutofillEngine';
 import '../index.css';
 
@@ -62,6 +62,22 @@ function checkAutoFillOnLoad() {
 function triggerAutofill(profileId?: string) {
   const targetProfileId = profileId || 'default';
   
+  // 1. Fetch credentials if any exist for this domain, and populate them
+  chrome.runtime.sendMessage({
+    action: 'getCredentialForDomain',
+    domain: window.location.hostname
+  }, (response) => {
+    if (response && response.credential) {
+      const { username, password } = findLoginFields();
+      if (username && response.credential.username) {
+        fillFormFields([{ element: username, value: response.credential.username }]);
+      }
+      if (password && response.credential.password) {
+        fillFormFields([{ element: password, value: response.credential.password }]);
+      }
+    }
+  });
+  
   // Send scan request to background to match fields with AI (heuristic or LLM)
   const { elements, metadata } = scanFormFields(document);
   if (elements.length === 0) return;
@@ -73,7 +89,7 @@ function triggerAutofill(profileId?: string) {
   }, (response) => {
     if (response && response.matches) {
       const matches = response.matches; // map of scanId -> MatchResult
-      const fillPayload: { element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement; value: string }[] = [];
+      const fillPayload: { element: HTMLElement; value: string }[] = [];
 
       for (const el of elements) {
         const scanId = el.getAttribute('data-autofill-scan-id');
@@ -94,8 +110,10 @@ function triggerAutofill(profileId?: string) {
             originalValue: match.matchedValue
           });
 
-          // Add listener to check for manual user changes
-          el.addEventListener('blur', handleFieldBlur);
+          // Add listener to check for manual user changes (inputs/selects only)
+          if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
+            el.addEventListener('blur', handleFieldBlur);
+          }
         }
       }
 

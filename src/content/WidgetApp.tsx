@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Sparkles, Edit3, Settings, Save, X, Minimize2, Move, HelpCircle, User, Award, ListPlus, ToggleLeft, ToggleRight, Check } from 'lucide-react';
+import { Sparkles, Edit3, Settings, Save, X, Minimize2, Move, HelpCircle, User, Award, ListPlus, ToggleLeft, ToggleRight, Check, Key } from 'lucide-react';
 import { UserProfile, ManualMapping, AppSettings, DomainRule } from '../shared/types';
+import { findLoginFields } from './FormScanner';
 
 export default function WidgetApp() {
   const [expanded, setExpanded] = useState(false);
@@ -18,6 +19,7 @@ export default function WidgetApp() {
   });
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'info' | 'success' | 'error' } | null>(null);
   const [isFilling, setIsFilling] = useState(false);
+  const [hasPasswordField, setHasPasswordField] = useState(false);
   
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dragStartRef = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
@@ -258,6 +260,37 @@ export default function WidgetApp() {
     });
   };
 
+  const handleSaveCredentials = () => {
+    const { username, password } = findLoginFields();
+    if (!password) {
+      showStatus("No password input field found on this page.", "error");
+      return;
+    }
+    
+    const usernameVal = username ? username.value.trim() : '';
+    const passwordVal = password.value.trim();
+    
+    if (!passwordVal) {
+      showStatus("Please enter password on the page first.", "error");
+      return;
+    }
+    
+    chrome.runtime.sendMessage({
+      action: 'saveCredential',
+      credential: {
+        domain: window.location.hostname,
+        username: usernameVal,
+        password: passwordVal
+      }
+    }, (response) => {
+      if (response && response.success) {
+        showStatus("Credentials saved locally!", "success");
+      } else {
+        showStatus(response?.error || "Failed to save credentials.", "error");
+      }
+    });
+  };
+
   const activeProfile = profiles.find(p => p.id === activeProfileId) || profiles[0];
 
   return (
@@ -276,6 +309,7 @@ export default function WidgetApp() {
           onClick={() => {
             if (!isDraggingRef.current) {
               setExpanded(true);
+              setHasPasswordField(document.querySelector('input[type="password"]') !== null);
             }
           }}
           className={`flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-tr from-brand-600 to-indigo-500 shadow-lg shadow-brand-500/30 transition-transform active:scale-95 cursor-pointer hover:shadow-brand-500/50 hover:brightness-110 border border-brand-400/30 ${
@@ -342,12 +376,40 @@ export default function WidgetApp() {
                 <option value="professional.experience">Experience (Years)</option>
                 <option value="professional.currentCompany">Current Company</option>
                 <option value="professional.skills">Skills</option>
-                <option value="professional.education">Education</option>
-                <option value="professional.degree">Degree</option>
-                <option value="professional.college">College / University</option>
+                <option value="professional.education">Education (General)</option>
+                <option value="professional.degree">Degree (General)</option>
+                <option value="professional.college">College (General)</option>
                 <option value="professional.linkedin">LinkedIn Link</option>
                 <option value="professional.github">GitHub Link</option>
                 <option value="professional.portfolio">Portfolio Link</option>
+              </optgroup>
+              <optgroup label="10th Class Education">
+                <option value="education.tenth.schoolOrCollege">10th School Name</option>
+                <option value="education.tenth.degree">10th Board</option>
+                <option value="education.tenth.fieldOfStudy">10th Stream/Subjects</option>
+                <option value="education.tenth.passingYear">10th Passing Year</option>
+                <option value="education.tenth.grade">10th Grade/CGPA/%</option>
+              </optgroup>
+              <optgroup label="12th Class / Diploma">
+                <option value="education.twelfthOrDiploma.schoolOrCollege">12th/Diploma School/College</option>
+                <option value="education.twelfthOrDiploma.degree">12th/Diploma Degree/Board</option>
+                <option value="education.twelfthOrDiploma.fieldOfStudy">12th/Diploma Stream</option>
+                <option value="education.twelfthOrDiploma.passingYear">12th/Diploma Passing Year</option>
+                <option value="education.twelfthOrDiploma.grade">12th/Diploma Grade/CGPA/%</option>
+              </optgroup>
+              <optgroup label="Undergraduate (UG)">
+                <option value="education.ug.schoolOrCollege">UG College/University</option>
+                <option value="education.ug.degree">UG Degree</option>
+                <option value="education.ug.fieldOfStudy">UG Stream/Major</option>
+                <option value="education.ug.passingYear">UG Passing Year</option>
+                <option value="education.ug.grade">UG Grade/CGPA/%</option>
+              </optgroup>
+              <optgroup label="Postgraduate (PG)">
+                <option value="education.pg.schoolOrCollege">PG College/University</option>
+                <option value="education.pg.degree">PG Degree</option>
+                <option value="education.pg.fieldOfStudy">PG Stream/Major</option>
+                <option value="education.pg.passingYear">PG Passing Year</option>
+                <option value="education.pg.grade">PG Grade/CGPA/%</option>
               </optgroup>
               <optgroup label="Job Search / Comp">
                 <option value="jobInfo.currentCTC">Current CTC</option>
@@ -472,6 +534,15 @@ export default function WidgetApp() {
                 Save Template
               </button>
             </div>
+            {hasPasswordField && (
+              <button
+                onClick={handleSaveCredentials}
+                className="w-full py-2 px-3 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-350 hover:text-white text-[11px] font-medium transition flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Key className="w-3.5 h-3.5 text-yellow-500" />
+                Save Credentials
+              </button>
+            )}
           </div>
 
           {/* Quick Settings & Status */}

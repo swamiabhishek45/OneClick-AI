@@ -37,11 +37,27 @@ export interface CustomField {
   value: string;
 }
 
+export interface EducationLevel {
+  schoolOrCollege: string;
+  degree: string;
+  fieldOfStudy: string;
+  passingYear: string;
+  grade: string;
+}
+
+export interface EducationInfo {
+  tenth: EducationLevel;
+  twelfthOrDiploma: EducationLevel;
+  ug: EducationLevel;
+  pg: EducationLevel;
+}
+
 export interface UserProfile {
   id: string;
   name: string;
   personal: PersonalInfo;
   professional: ProfessionalInfo;
+  education: EducationInfo;
   jobInfo: JobInfo;
   customFields: CustomField[];
   isDefault?: boolean;
@@ -54,6 +70,15 @@ export interface Resume {
   fileType: string; // 'pdf' | 'docx'
   base64Data: string; // Base64 data content of file
   uploadedAt: string;
+  isDefault?: boolean;
+}
+
+export interface SavedCredential {
+  id: string;
+  domain: string;
+  username: string;
+  password: string;
+  createdAt: string;
 }
 
 export interface ManualMapping {

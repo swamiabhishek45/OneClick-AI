@@ -16,7 +16,11 @@ import {
   saveDomainRule, 
   getAppSettings, 
   getActiveProfileId, 
-  setActiveProfileId 
+  setActiveProfileId,
+  getCredentials,
+  saveCredential,
+  deleteCredential,
+  getCredentialByDomain
 } from '../shared/db';
 import { matchFieldHeuristically, matchFieldsWithGemini, MatchResult, ScannedFieldMetadata } from '../shared/ai';
 import { learnUserCorrection } from '../shared/learning';
@@ -56,6 +60,36 @@ chrome.runtime.onInstalled.addListener(async () => {
           linkedin: 'https://linkedin.com/in/johndoe',
           github: 'https://github.com/johndoe',
           portfolio: 'https://johndoe.dev'
+        },
+        education: {
+          tenth: {
+            schoolOrCollege: 'Lincoln High School',
+            degree: 'High School',
+            fieldOfStudy: 'General',
+            passingYear: '2016',
+            grade: '92%'
+          },
+          twelfthOrDiploma: {
+            schoolOrCollege: 'Lincoln Junior College',
+            degree: 'Higher Secondary',
+            fieldOfStudy: 'Science',
+            passingYear: '2018',
+            grade: '95%'
+          },
+          ug: {
+            schoolOrCollege: 'Stanford University',
+            degree: 'Bachelor of Science',
+            fieldOfStudy: 'Computer Science',
+            passingYear: '2022',
+            grade: '3.8 GPA'
+          },
+          pg: {
+            schoolOrCollege: 'Stanford University',
+            degree: 'Master of Science',
+            fieldOfStudy: 'Computer Science',
+            passingYear: '2024',
+            grade: '3.9 GPA'
+          }
         },
         jobInfo: {
           currentCTC: '100,000 USD',
@@ -118,6 +152,36 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
 
       case 'saveProfile': {
         await saveProfile(message.profile);
+        notifyContentScriptsDataUpdated();
+        sendResponse({ success: true });
+        break;
+      }
+
+      case 'getCredentials': {
+        const credentials = await getCredentials();
+        sendResponse({ credentials });
+        break;
+      }
+
+      case 'getCredentialForDomain': {
+        const credential = await getCredentialByDomain(message.domain);
+        sendResponse({ credential });
+        break;
+      }
+
+      case 'saveCredential': {
+        await saveCredential({
+          id: message.credential.id || Math.random().toString(36).substring(2),
+          createdAt: new Date().toISOString(),
+          ...message.credential
+        });
+        notifyContentScriptsDataUpdated();
+        sendResponse({ success: true });
+        break;
+      }
+
+      case 'deleteCredential': {
+        await deleteCredential(message.id);
         notifyContentScriptsDataUpdated();
         sendResponse({ success: true });
         break;
@@ -220,7 +284,23 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
           // D. Fallback to offline heuristic/learning matching
           const heur = matchFieldHeuristically(field, profile, learningMappings);
           if (heur) {
-            matches[field.scanId] = heur;
+            if (heur.fieldPath === 'system.resume') {
+              const resumes = await getResumes();
+              const defaultResume = resumes.find(r => r.isDefault) || resumes[0];
+              if (defaultResume) {
+                matches[field.scanId] = {
+                  fieldPath: 'system.resume',
+                  confidence: 0.95,
+                  matchedValue: JSON.stringify({
+                    fileName: defaultResume.fileName,
+                    fileType: defaultResume.fileType,
+                    base64Data: defaultResume.base64Data
+                  })
+                };
+              }
+            } else {
+              matches[field.scanId] = heur;
+            }
           }
         }
 
@@ -354,6 +434,19 @@ function findProfilePathForValue(profile: UserProfile, value: string): string | 
       return `jobInfo.${key}`;
     }
   }
+  // Search education
+  if (profile.education) {
+    for (const [level, levelObj] of Object.entries(profile.education)) {
+      if (levelObj && typeof levelObj === 'object') {
+        for (const [key, val] of Object.entries(levelObj)) {
+          if (String(val).toLowerCase().trim() === checkVal) {
+            return `education.${level}.${key}`;
+          }
+        }
+      }
+    }
+  }
+
   // Search custom fields
   for (const cf of profile.customFields) {
     if (String(cf.value).toLowerCase().trim() === checkVal) {
