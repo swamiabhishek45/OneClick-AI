@@ -14,7 +14,8 @@ import {
   addHistoryEntry, 
   getDomainRule, 
   saveDomainRule, 
-  getAppSettings, 
+  getAppSettings,
+  saveAppSettings,
   getActiveProfileId, 
   setActiveProfileId,
   getCredentials,
@@ -22,89 +23,128 @@ import {
   deleteCredential,
   getCredentialByDomain
 } from '../shared/db';
-import { matchFieldHeuristically, matchFieldsWithGemini, MatchResult, ScannedFieldMetadata } from '../shared/ai';
+import {
+  matchFieldHeuristically,
+  resolveUnmatchedFieldsWithGemini,
+  getProfileValueByPath,
+  MatchResult,
+  ScannedFieldMetadata,
+} from '../shared/ai';
 import { learnUserCorrection } from '../shared/learning';
 import { UserProfile } from '../shared/types';
+
+/** Sync API key from local `.env` at build time into extension storage (if dashboard key is empty). */
+async function syncGeminiKeyFromBuildEnv() {
+  const builtInKey = (process.env.GEMINI_API_KEY || '').trim();
+  if (!builtInKey) return;
+
+  const settings = await getAppSettings();
+  if (settings.ai.geminiApiKey?.trim()) return;
+
+  await saveAppSettings({
+    ...settings,
+    ai: {
+      ...settings.ai,
+      geminiApiKey: builtInKey,
+      provider: settings.ai.provider === 'heuristic' ? 'hybrid' : settings.ai.provider,
+    },
+  });
+}
 
 // Initialize Database on install or worker start
 chrome.runtime.onInstalled.addListener(async () => {
   console.log("OneClick Autofill AI installed.");
   try {
     await initDb();
+    await syncGeminiKeyFromBuildEnv();
     // Pre-populate a default profile if none exists
     const profiles = await getProfiles();
+    const defaultProfile: UserProfile = {
+      id: 'default',
+      name: 'Abhishek Profile',
+      personal: {
+        fullName: 'Abhishek Baswaraj Swami',
+        firstName: 'Abhishek',
+        lastName: 'Swami',
+        email: 'abhishekswami1435@gmail.com',
+        phone: '+918956008591',
+        address: 'Pune',
+        city: 'Pune',
+        state: 'Maharashtra',
+        country: 'India',
+        postalCode: '411001',
+      },
+      professional: {
+        jobTitle: 'Full Stack Developer',
+        experience: '1+',
+        currentCompany: 'One Union Solutions',
+        skills:
+          'TypeScript, JavaScript, React, Next.js, Node.js, Express.js, Python, REST APIs, MongoDB, PostgreSQL, HTML, CSS, Tailwind CSS, Git, Docker, LLM, GenAI, Prompt Engineering, RAG, AI Integration, Full Stack Development',
+        education:
+          'B.Tech (CSE)',
+        degree: 'B.Tech',
+        college: 'Vilasrao Deshmukh Foundation Group of Institutions, Latur',
+        linkedin: 'https://www.linkedin.com/in/swamiabhishek45/',
+        github: 'https://github.com/swamiabhishek45',
+        portfolio: 'https://swamiabhishek45.online/',
+      },
+      education: {
+        tenth: {
+          schoolOrCollege: 'Parimal High School, Latur',
+          degree: 'SSC',
+          fieldOfStudy: 'Science',
+          passingYear: '2019',
+          grade: '86.20%',
+        },
+        twelfthOrDiploma: {
+          schoolOrCollege: 'Shyamgir Mahavidyalaya, Latur',
+          degree: 'HSC',
+          fieldOfStudy: 'PCMB',
+          passingYear: '2021',
+          grade: '82.16%',
+        },
+        ug: {
+          schoolOrCollege: 'Vilasrao Deshmukh Foundation Group of Institutions, Latur',
+          degree: 'B.Tech',
+          fieldOfStudy: 'CSE',
+          passingYear: '2025',
+          grade: '8.20 CGPA',
+        },
+        pg: {
+          schoolOrCollege: '',
+          degree: '',
+          fieldOfStudy: '',
+          passingYear: '',
+          grade: '',
+        },
+      },
+      jobInfo: {
+        currentCTC: '350000',
+        expectedCTC: '500000',
+        noticePeriod: '15 Days',
+        preferredLocation: 'Pune, Remote',
+      },
+      customFields: [],
+    };
+
     if (profiles.length === 0) {
-      const defaultProfile: UserProfile = {
-        id: 'default',
-        name: 'Default Profile',
-        personal: {
-          fullName: 'John Doe',
-          firstName: 'John',
-          lastName: 'Doe',
-          email: 'john.doe@example.com',
-          phone: '+15551234567',
-          address: '123 Main St',
-          city: 'San Francisco',
-          state: 'CA',
-          country: 'United States',
-          postalCode: '94105'
-        },
-        professional: {
-          jobTitle: 'Software Engineer',
-          experience: '3',
-          currentCompany: 'Tech Corp',
-          skills: 'TypeScript, React, Node.js, Python, CSS, HTML',
-          education: 'Bachelor of Science',
-          degree: 'Computer Science',
-          college: 'Stanford University',
-          linkedin: 'https://linkedin.com/in/johndoe',
-          github: 'https://github.com/johndoe',
-          portfolio: 'https://johndoe.dev'
-        },
-        education: {
-          tenth: {
-            schoolOrCollege: 'Lincoln High School',
-            degree: 'High School',
-            fieldOfStudy: 'General',
-            passingYear: '2016',
-            grade: '92%'
-          },
-          twelfthOrDiploma: {
-            schoolOrCollege: 'Lincoln Junior College',
-            degree: 'Higher Secondary',
-            fieldOfStudy: 'Science',
-            passingYear: '2018',
-            grade: '95%'
-          },
-          ug: {
-            schoolOrCollege: 'Stanford University',
-            degree: 'Bachelor of Science',
-            fieldOfStudy: 'Computer Science',
-            passingYear: '2022',
-            grade: '3.8 GPA'
-          },
-          pg: {
-            schoolOrCollege: 'Stanford University',
-            degree: 'Master of Science',
-            fieldOfStudy: 'Computer Science',
-            passingYear: '2024',
-            grade: '3.9 GPA'
-          }
-        },
-        jobInfo: {
-          currentCTC: '100,000 USD',
-          expectedCTC: '130,000 USD',
-          noticePeriod: '30 Days',
-          preferredLocation: 'San Francisco, Remote'
-        },
-        customFields: []
-      };
       await saveProfile(defaultProfile);
+    } else {
+      const existingDefault = profiles.find((p) => p.id === 'default');
+      const seedEmails = new Set(['john.doe@example.com', 'abhishekswami1435@gmail.com']);
+      if (
+        existingDefault &&
+        seedEmails.has(existingDefault.personal.email.toLowerCase())
+      ) {
+        await saveProfile({ ...defaultProfile, name: existingDefault.name });
+      }
     }
   } catch (err) {
     console.error("Database initialization failed on install:", err);
   }
 });
+
+void syncGeminiKeyFromBuildEnv();
 
 // Listener to open Options Page
 chrome.action.onClicked.addListener(() => {
@@ -193,6 +233,12 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
         break;
       }
 
+      case 'getAppSettings': {
+        const settings = await getAppSettings();
+        sendResponse({ settings });
+        break;
+      }
+
       case 'saveDomainRule': {
         await saveDomainRule(message.rule);
         notifyContentScriptsDataUpdated();
@@ -217,10 +263,12 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
       case 'matchFields': {
         const fields = message.fields as ScannedFieldMetadata[];
         const profileId = message.profileId;
-        
+        const jobDescription =
+          typeof message.jobDescription === 'string' ? message.jobDescription : '';
+
         const profiles = await getProfiles();
-        const profile = profiles.find(p => p.id === profileId) || profiles[0];
-        
+        const profile = profiles.find((p) => p.id === profileId) || profiles[0];
+
         if (!profile) {
           sendResponse({ matches: {} });
           return;
@@ -229,77 +277,114 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
         const settings = await getAppSettings();
         const learningMappings = await getLearningMappings();
         const domain = sender.url ? new URL(sender.url).hostname : '';
-        
-        // 1. Load manual mappings for this domain
         const manualMappings = await getManualMappingsByDomain(domain);
-        
-        // 2. Load template for this domain
         const template = await getTemplateByDomain(domain);
 
         const matches: Record<string, MatchResult> = {};
+        const apiKey = settings.ai.geminiApiKey?.trim();
+        const useJobDescription =
+          settings.ai.useJobDescriptionContext !== false && jobDescription.length > 0;
+        const jdContext = useJobDescription ? jobDescription : '';
 
-        // Run Heuristics/Gemini matching
-        let geminiMatches: Record<string, MatchResult> = {};
-        if (settings.ai.provider === 'gemini' && settings.ai.geminiApiKey) {
-          geminiMatches = await matchFieldsWithGemini(fields, profile, settings.ai.geminiApiKey, settings.ai.geminiModel);
-        }
+        const applyHeuristicMatch = async (field: ScannedFieldMetadata) => {
+          const heur = matchFieldHeuristically(field, profile, learningMappings);
+          if (!heur) return;
+          if (heur.fieldPath === 'system.resume') {
+            const resumes = await getResumes();
+            const defaultResume = resumes.find((r) => r.isDefault) || resumes[0];
+            if (defaultResume) {
+              matches[field.scanId] = {
+                fieldPath: 'system.resume',
+                confidence: 0.95,
+                matchedValue: JSON.stringify({
+                  fileName: defaultResume.fileName,
+                  fileType: defaultResume.fileType,
+                  base64Data: defaultResume.base64Data,
+                }),
+              };
+            }
+          } else {
+            matches[field.scanId] = heur;
+          }
+        };
 
         for (const field of fields) {
-          // A. Check manual mapping overlay first
-          const mMapping = manualMappings.find(m => m.selector === field.htmlId || m.selector === `#${field.htmlId}` || m.selector.includes(field.htmlName));
+          const mMapping = manualMappings.find((m) => {
+            if (
+              field.htmlId &&
+              (m.selector === field.htmlId ||
+                m.selector === `#${field.htmlId}` ||
+                m.selector.endsWith(`#${field.htmlId}`))
+            ) {
+              return true;
+            }
+            if (
+              field.htmlName &&
+              (m.selector.includes(`name="${field.htmlName}"`) ||
+                m.selector.includes(field.htmlName))
+            ) {
+              return true;
+            }
+            return false;
+          });
           if (mMapping) {
             const val = getProfileValueByPath(profile, mMapping.fieldPath);
             if (val) {
               matches[field.scanId] = {
                 fieldPath: mMapping.fieldPath,
                 confidence: 1.0,
-                matchedValue: val
+                matchedValue: val,
               };
               continue;
             }
           }
 
-          // B. Check website-specific templates
           if (template) {
-            const rule = template.rules.find(r => r.selector === field.htmlId || r.selector === `#${field.htmlId}` || r.selector.includes(field.htmlName));
+            const rule = template.rules.find(
+              (r) =>
+                r.selector === field.htmlId ||
+                r.selector === `#${field.htmlId}` ||
+                r.selector.includes(field.htmlName)
+            );
             if (rule) {
               const val = rule.customValue || getProfileValueByPath(profile, rule.fieldPath);
               if (val) {
                 matches[field.scanId] = {
                   fieldPath: rule.fieldPath,
                   confidence: 1.0,
-                  matchedValue: val
+                  matchedValue: val,
                 };
                 continue;
               }
             }
           }
 
-          // C. If Gemini matched this field, use it
-          if (geminiMatches[field.scanId]) {
-            matches[field.scanId] = geminiMatches[field.scanId];
-            continue;
-          }
+          await applyHeuristicMatch(field);
+        }
 
-          // D. Fallback to offline heuristic/learning matching
-          const heur = matchFieldHeuristically(field, profile, learningMappings);
-          if (heur) {
-            if (heur.fieldPath === 'system.resume') {
-              const resumes = await getResumes();
-              const defaultResume = resumes.find(r => r.isDefault) || resumes[0];
-              if (defaultResume) {
-                matches[field.scanId] = {
-                  fieldPath: 'system.resume',
-                  confidence: 0.95,
-                  matchedValue: JSON.stringify({
-                    fileName: defaultResume.fileName,
-                    fileType: defaultResume.fileType,
-                    base64Data: defaultResume.base64Data
-                  })
-                };
-              }
-            } else {
-              matches[field.scanId] = heur;
+        const stillUnmatched = fields.filter((f) => !matches[f.scanId]);
+        const provider = settings.ai.provider;
+        const hasApiKey = Boolean(apiKey);
+        const wantsGeminiMapping =
+          hasApiKey && (provider === 'hybrid' || provider === 'gemini');
+        const wantsGeminiAnswers =
+          hasApiKey && settings.ai.answerOpenQuestions !== false;
+
+        if (stillUnmatched.length > 0 && (wantsGeminiMapping || wantsGeminiAnswers)) {
+          const aiFilled = await resolveUnmatchedFieldsWithGemini(
+            stillUnmatched,
+            profile,
+            apiKey!,
+            settings.ai.geminiModel,
+            {
+              jobDescription: jdContext,
+              includeProfileMapping: wantsGeminiMapping,
+              includeGeneratedAnswers: wantsGeminiAnswers,
+            }
+          );
+          for (const [scanId, match] of Object.entries(aiFilled)) {
+            if (!matches[scanId]) {
+              matches[scanId] = match;
             }
           }
         }
@@ -309,20 +394,25 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
       }
 
       case 'autofillPage': {
-        // Find active tab and trigger autofill
         const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
         const activeTab = tabs[0];
         if (activeTab && activeTab.id) {
-          chrome.tabs.sendMessage(activeTab.id, {
-            action: 'triggerAutofill',
-            profileId: message.profileId
-          }, (response) => {
-            if (chrome.runtime.lastError) {
-              sendResponse({ success: false, error: 'Autofill not loaded. Please reload the webpage.' });
-            } else {
-              sendResponse(response || { success: false });
+          const profileId = message.profileId || (await getActiveProfileId());
+          chrome.tabs.sendMessage(
+            activeTab.id,
+            {
+              action: 'triggerAutofill',
+              profileId,
+              force: message.force === true,
+            },
+            (response) => {
+              if (chrome.runtime.lastError) {
+                sendResponse({ success: false, error: 'Autofill not loaded. Please reload the webpage.' });
+              } else {
+                sendResponse(response || { success: false, filledCount: 0 });
+              }
             }
-          });
+          );
         } else {
           sendResponse({ success: false, error: 'No active tab found' });
         }
@@ -454,26 +544,6 @@ function findProfilePathForValue(profile: UserProfile, value: string): string | 
     }
   }
   return null;
-}
-
-// Helper to get nested value from profile object
-function getProfileValueByPath(profile: UserProfile, path: string): string {
-  if (path.startsWith('custom:')) {
-    const customId = path.split(':')[1];
-    const field = profile.customFields.find((f) => f.id === customId);
-    return field ? field.value : '';
-  }
-
-  const parts = path.split('.');
-  let current: any = profile;
-  for (const part of parts) {
-    if (current && current[part] !== undefined) {
-      current = current[part];
-    } else {
-      return '';
-    }
-  }
-  return typeof current === 'string' ? current : '';
 }
 
 // Notify all open tabs/content scripts that extension data has changed

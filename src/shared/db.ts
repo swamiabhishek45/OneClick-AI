@@ -293,10 +293,10 @@ export async function getDomainRule(domain: string): Promise<DomainRule> {
   return new Promise((resolve) => {
     const request = store.get(domain);
     request.onsuccess = () => {
-      resolve(request.result || { domain, enabled: true, autoFillOnLoad: false, requireConfirmation: false });
+      resolve(request.result || { domain, enabled: true, autoFillOnLoad: true, requireConfirmation: false });
     };
     request.onerror = () => {
-      resolve({ domain, enabled: true, autoFillOnLoad: false, requireConfirmation: false });
+      resolve({ domain, enabled: true, autoFillOnLoad: true, requireConfirmation: false });
     };
   });
 }
@@ -313,9 +313,11 @@ export async function saveDomainRule(rule: DomainRule): Promise<void> {
 // Chrome Storage settings wrappers (shared & quick settings)
 const DEFAULT_SETTINGS: AppSettings = {
   ai: {
-    provider: 'heuristic',
+    provider: 'hybrid',
     geminiApiKey: '',
-    geminiModel: 'gemini-1.5-flash',
+    geminiModel: 'gemini-2.0-flash',
+    answerOpenQuestions: true,
+    useJobDescriptionContext: true,
   },
   theme: 'dark',
   keyboardShortcut: 'Alt+Shift+F',
@@ -326,7 +328,16 @@ export function getAppSettings(): Promise<AppSettings> {
   return new Promise((resolve) => {
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
       chrome.storage.local.get(['settings'], (result) => {
-        resolve(result.settings || DEFAULT_SETTINGS);
+        const stored = result.settings as AppSettings | undefined;
+        if (!stored) {
+          resolve(DEFAULT_SETTINGS);
+          return;
+        }
+        resolve({
+          ...DEFAULT_SETTINGS,
+          ...stored,
+          ai: { ...DEFAULT_SETTINGS.ai, ...stored.ai },
+        });
       });
     } else {
       // Fallback for non-extension environment (testing/dev mockup)

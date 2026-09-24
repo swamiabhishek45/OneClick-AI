@@ -6,6 +6,7 @@ export function scanFormFields(root: Element | Document = document): {
 } {
   const elements: HTMLElement[] = [];
   const metadata: ScannedFieldMetadata[] = [];
+  const seenRadioGroups = new Set<string>();
 
   function recursiveScan(node: Node) {
     if (node.nodeType === Node.ELEMENT_NODE) {
@@ -34,25 +35,49 @@ export function scanFormFields(root: Element | Document = document): {
           ('readOnly' in el && (el as any).readOnly);
 
         if (!shouldExclude) {
+          if (el instanceof HTMLInputElement && type === 'radio' && el.name) {
+            if (seenRadioGroups.has(el.name)) {
+              return;
+            }
+            seenRadioGroups.add(el.name);
+          }
+
           elements.push(el);
-          
-          // Generate unique scanId for references during this session
-          const scanId = el.getAttribute('data-autofill-scan-id') || 
+
+          const scanId =
+            el.getAttribute('data-autofill-scan-id') ||
             (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2));
           el.setAttribute('data-autofill-scan-id', scanId);
 
-          const label = findLabel(el);
+          const isRadioGroup =
+            el instanceof HTMLInputElement && type === 'radio' && Boolean(el.name);
+          const isCombobox = isComboboxInput(el);
+          const isSelect = el instanceof HTMLSelectElement;
+
+          const label = isRadioGroup
+            ? findRadioGroupLabel(el as HTMLInputElement)
+            : findLabel(el);
           const surrounding = getSurroundingContext(el);
+
+          let controlKind: ScannedFieldMetadata['controlKind'] = 'standard';
+          if (isRadioGroup) controlKind = 'radio-group';
+          else if (isSelect) controlKind = 'select';
+          else if (isCombobox) controlKind = 'combobox';
+
+          el.setAttribute('data-autofill-control-kind', controlKind);
 
           metadata.push({
             scanId,
-            type,
+            type: isRadioGroup ? 'radio-group' : type,
             label,
             placeholder: el.getAttribute('placeholder') || '',
             ariaLabel: el.getAttribute('aria-label') || '',
             htmlId: el.id || '',
             htmlName: el.getAttribute('name') || '',
-            surroundingText: surrounding
+            surroundingText: surrounding,
+            autocomplete: el.getAttribute('autocomplete') || '',
+            controlKind,
+            groupName: isRadioGroup ? (el as HTMLInputElement).name : undefined,
           });
         }
       }
@@ -148,15 +173,37 @@ function findLabel(input: HTMLElement): string {
     }
   }
 
-  // 5. Parent wrapper text search (common in React/SPA design systems)
-  const cell = input.closest('div, td, tr, li, p');
+  // 5. Table row label (common in ATS / CRM forms)
+  const row = input.closest('tr');
+  if (row) {
+    const headerCell = row.querySelector('th, td.label, td:first-child');
+    if (headerCell && !headerCell.contains(input) && headerCell.textContent?.trim()) {
+      const rowLabel = headerCell.textContent.replace(/\*/g, '').trim();
+      if (rowLabel.length > 0 && rowLabel.length < 120) {
+        return rowLabel;
+      }
+    }
+  }
+
+  // 6. Fieldset legend
+  const fieldset = input.closest('fieldset');
+  if (fieldset) {
+    const legend = fieldset.querySelector('legend');
+    if (legend?.textContent?.trim()) {
+      return legend.textContent.replace(/\*/g, '').trim();
+    }
+  }
+
+  // 7. Parent wrapper text search (common in React/SPA design systems)
+  const cell = input.closest('div, td, li, p, section');
   if (cell) {
-    // Look for text tags inside the same container
-    const textNode = cell.querySelector('span, label, p, b, strong');
-    if (textNode && textNode !== input && textNode.textContent && textNode.textContent.trim()) {
-      // Make sure the text node doesn't contain the input itself
-      if (!textNode.contains(input)) {
-        return textNode.textContent.trim();
+    const labelCandidates = cell.querySelectorAll('label, span, p, b, strong, h1, h2, h3, h4, h5, h6');
+    for (let i = 0; i < labelCandidates.length; i++) {
+      const textNode = labelCandidates[i] as HTMLElement;
+      if (textNode === input || textNode.contains(input)) continue;
+      const text = textNode.textContent?.replace(/\*/g, '').trim();
+      if (text && text.length >= 2 && text.length <= 80) {
+        return text;
       }
     }
   }
@@ -203,4 +250,53 @@ export function findLoginFields(): { username: HTMLInputElement | null; password
   }
   
   return { username, password };
+}
+
+function isComboboxInput(el: HTMLElement): boolean {
+  if (!(el instanceof HTMLInputElement)) return false;
+  const type = el.type.toLowerCase();
+  if (type === 'hidden' || type === 'checkbox' || type === 'radio' || type === 'file') {
+    return false;
+  }
+  const role = el.getAttribute('role');
+  if (role === 'combobox') return true;
+  if (el.getAttribute('aria-autocomplete') === 'list') return true;
+  if (el.getAttribute('aria-haspopup') === 'listbox') return true;
+  if (el.hasAttribute('list')) return true;
+  const cls = (el.className || '').toString().toLowerCase();
+  return (
+    cls.includes('autocomplete') ||
+    cls.includes('typeahead') ||
+    cls.includes('select2') ||
+    cls.includes('react-select') ||
+    cls.includes('awesomplete')
+  );
+}
+
+function findRadioGroupLabel(radio: HTMLInputElement): string {
+  const fieldset = radio.closest('fieldset');
+  const legend = fieldset?.querySelector('legend')?.textContent?.replace(/\*/g, '').trim();
+  if (legend) return legend;
+
+  const radioGroup = radio.closest('[role="radiogroup"]');
+  const labelledBy = radioGroup?.getAttribute('aria-labelledby');
+  if (labelledBy) {
+    const root = radio.getRootNode() as Document | DocumentFragment;
+    const labelEl = root.getElementById(labelledBy);
+    if (labelEl?.textContent?.trim()) {
+      return labelEl.textContent.replace(/\*/g, '').trim();
+    }
+  }
+
+  const container = radio.closest('.form-group, tr, li, div, section, td');
+  if (container) {
+    const clone = container.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('input, select, textarea, label, button').forEach((n) => n.remove());
+    const text = clone.textContent?.replace(/\*/g, '').replace(/\s+/g, ' ').trim();
+    if (text && text.length >= 3 && text.length <= 120) {
+      return text;
+    }
+  }
+
+  return findLabel(radio);
 }

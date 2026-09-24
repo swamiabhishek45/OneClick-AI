@@ -1,5 +1,5 @@
 import { 
-  User, Briefcase, Settings, History, FileText, Sparkles, Plus, Trash2, 
+  User, Briefcase, Settings, History, FileText, Plus, Trash2, 
   Save, CheckCircle, Database, ShieldAlert, Award, FileCode, Search, Copy, 
   Settings2, HelpCircle, HardDriveDownload, CloudLightning, ArrowUpRight, Sliders, GraduationCap,
   Key, Eye, EyeOff, Star
@@ -14,6 +14,7 @@ import {
   getCredentials, deleteCredential
 } from '../shared/db';
 import { UserProfile, Resume, WebsiteTemplate, ManualMapping, FillHistoryEntry, AppSettings, EducationInfo, SavedCredential } from '../shared/types';
+import { ExtensionLogo } from '../shared/ExtensionLogo';
 
 import React, { useState, useEffect } from 'react';
 
@@ -433,8 +434,8 @@ export default function OptionsApp() {
         <div>
           {/* Logo Branding */}
           <div className="p-6 flex items-center gap-2.5 border-b border-slate-850">
-            <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-brand-500/20">
-              <Sparkles className="w-5 h-5 text-white" />
+            <div className="h-9 w-9 rounded-xl overflow-hidden shadow-lg shadow-brand-500/20 ring-1 ring-brand-500/25 shrink-0">
+              <ExtensionLogo className="h-9 w-9" />
             </div>
             <div>
               <h1 className="font-bold text-sm bg-gradient-to-r from-brand-400 to-indigo-300 bg-clip-text text-transparent tracking-wide">OneClick AI</h1>
@@ -1183,7 +1184,7 @@ export default function OptionsApp() {
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">AI Matcher Provider</h3>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div 
                   onClick={() => setAppSettingsState({ ...appSettings, ai: { ...appSettings.ai, provider: 'heuristic' } })}
                   className={`p-4 rounded-xl border cursor-pointer transition flex flex-col gap-1.5 ${
@@ -1192,8 +1193,20 @@ export default function OptionsApp() {
                       : 'bg-slate-900/20 border-slate-850 text-slate-450 hover:bg-slate-900/40'
                   }`}
                 >
-                  <p className="text-xs font-semibold text-slate-200">Local Rule-Based Matcher (Offline)</p>
-                  <p className="text-[10px] text-slate-550 leading-relaxed">Uses heuristic analysis, regex matching, and active learning corrections. runs completely local, ultra-fast, and secure.</p>
+                  <p className="text-xs font-semibold text-slate-200">Offline only</p>
+                  <p className="text-[10px] text-slate-550 leading-relaxed">Local keyword matching. Optional Gemini API key still enables AI-written answers for open questions only.</p>
+                </div>
+
+                <div 
+                  onClick={() => setAppSettingsState({ ...appSettings, ai: { ...appSettings.ai, provider: 'hybrid' } })}
+                  className={`p-4 rounded-xl border cursor-pointer transition flex flex-col gap-1.5 ${
+                    appSettings.ai.provider === 'hybrid' 
+                      ? 'bg-brand-600/10 border-brand-500/40 text-brand-400' 
+                      : 'bg-slate-900/20 border-slate-850 text-slate-450 hover:bg-slate-900/40'
+                  }`}
+                >
+                  <p className="text-xs font-semibold text-slate-200">Hybrid (recommended)</p>
+                  <p className="text-[10px] text-slate-550 leading-relaxed">Offline match first, then Gemini for unmatched fields and essay-style questions using your profile + job description.</p>
                 </div>
 
                 <div 
@@ -1204,15 +1217,15 @@ export default function OptionsApp() {
                       : 'bg-slate-900/20 border-slate-850 text-slate-450 hover:bg-slate-900/40'
                   }`}
                 >
-                  <p className="text-xs font-semibold text-slate-200">Gemini Compatible API (Advanced)</p>
-                  <p className="text-[10px] text-slate-550 leading-relaxed">Uses LLM reasoning to scan complex form schemas and layouts. Requires an active Google Gemini API key.</p>
+                  <p className="text-xs font-semibold text-slate-200">Gemini-first</p>
+                  <p className="text-[10px] text-slate-550 leading-relaxed">Maximum AI coverage: Gemini maps and generates answers for anything heuristics miss.</p>
                 </div>
               </div>
 
-              {appSettings.ai.provider === 'gemini' && (
+              {(appSettings.ai.provider !== 'heuristic' || appSettings.ai.answerOpenQuestions !== false) && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 animate-fade-in">
-                  <div>
-                    <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Gemini API Key</label>
+                  <div className="md:col-span-2">
+                    <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Google Gemini API Key</label>
                     <input
                       type="password"
                       placeholder="AIzaSy..."
@@ -1220,17 +1233,49 @@ export default function OptionsApp() {
                       onChange={(e) => setAppSettingsState({ ...appSettings, ai: { ...appSettings.ai, geminiApiKey: e.target.value } })}
                       className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200"
                     />
+                    <p className="text-[10px] text-slate-500 mt-1">Stored locally in your browser. Required for AI answers and hybrid/Gemini mapping.</p>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Model Version</label>
+                    <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Model</label>
                     <select
                       value={appSettings.ai.geminiModel}
                       onChange={(e) => setAppSettingsState({ ...appSettings, ai: { ...appSettings.ai, geminiModel: e.target.value } })}
                       className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200"
                     >
-                      <option value="gemini-1.5-flash">gemini-1.5-flash (Fast & Accurate)</option>
-                      <option value="gemini-1.5-pro">gemini-1.5-pro (Highly Logical)</option>
+                      <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+                      <option value="gemini-1.5-flash">gemini-1.5-flash</option>
+                      <option value="gemini-1.5-pro">gemini-1.5-pro</option>
                     </select>
+                  </div>
+                  <div className="flex flex-col gap-3 justify-center">
+                    <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={appSettings.ai.answerOpenQuestions !== false}
+                        onChange={(e) =>
+                          setAppSettingsState({
+                            ...appSettings,
+                            ai: { ...appSettings.ai, answerOpenQuestions: e.target.checked },
+                          })
+                        }
+                        className="rounded border-slate-700"
+                      />
+                      AI answers for open-ended questions
+                    </label>
+                    <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={appSettings.ai.useJobDescriptionContext !== false}
+                        onChange={(e) =>
+                          setAppSettingsState({
+                            ...appSettings,
+                            ai: { ...appSettings.ai, useJobDescriptionContext: e.target.checked },
+                          })
+                        }
+                        className="rounded border-slate-700"
+                      />
+                      Use job description from the page
+                    </label>
                   </div>
                 </div>
               )}

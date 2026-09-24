@@ -112,9 +112,14 @@ export interface LearningMapping {
 }
 
 export interface AISettings {
-  provider: 'heuristic' | 'gemini';
+  /** heuristic = offline only; hybrid = offline first + Gemini for gaps; gemini = Gemini mapping + answers */
+  provider: 'heuristic' | 'hybrid' | 'gemini';
   geminiApiKey: string;
-  geminiModel: string; // e.g., 'gemini-1.5-flash'
+  geminiModel: string; // e.g., 'gemini-2.0-flash'
+  /** Use Gemini to answer open-ended / unmatched questions from profile + job description */
+  answerOpenQuestions: boolean;
+  /** Include scraped job description text in Gemini prompts */
+  useJobDescriptionContext: boolean;
 }
 
 export interface DomainRule {

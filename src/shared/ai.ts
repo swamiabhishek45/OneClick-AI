@@ -9,6 +9,11 @@ export interface ScannedFieldMetadata {
   htmlId: string;
   htmlName: string;
   surroundingText: string;
+  autocomplete: string;
+  /** How the control should be filled (combobox search, radio group, etc.) */
+  controlKind?: 'standard' | 'combobox' | 'radio-group' | 'select';
+  /** Radio/checkbox group name */
+  groupName?: string;
 }
 
 export interface MatchResult {
@@ -24,9 +29,9 @@ const KEYWORDS: Record<string, string[]> = {
   'personal.lastName': ['last name', 'surname', 'lname', 'last_name', 'family name', 'last'],
   'personal.email': ['email', 'e-mail', 'mail address', 'email address', 'email_address', 'e-mail address'],
   'personal.phone': ['phone', 'mobile', 'tel', 'telephone', 'contact number', 'phone number', 'contact no', 'mobile number', 'cellphone', 'cell'],
-  'personal.address': ['address', 'street', 'line 1', 'line1', 'addr', 'residential address', 'mailing address'],
+  'personal.address': ['address', 'street', 'street address', 'address line', 'line 1', 'line1', 'addr', 'residential address', 'mailing address', 'address information'],
   'personal.city': ['city', 'town', 'location_city', 'suburb'],
-  'personal.state': ['state', 'province', 'region', 'territory'],
+  'personal.state': ['state', 'province', 'state/province', 'state or province', 'region', 'territory'],
   'personal.country': ['country', 'nation'],
   'personal.postalCode': ['zip', 'postal', 'zipcode', 'pincode', 'pin code', 'postal code', 'zip code'],
   'professional.jobTitle': ['job title', 'title', 'role', 'designation', 'position', 'current role', 'desired role'],
@@ -35,8 +40,8 @@ const KEYWORDS: Record<string, string[]> = {
   'professional.skills': ['skills', 'core skills', 'technologies', 'programming languages', 'key skills', 'areas of expertise'],
   'professional.education': ['education', 'qualification', 'academic'],
   'professional.degree': ['degree', 'qualification', 'major', 'education degree', 'study field', 'specialization'],
-  'professional.college': ['college', 'university', 'school', 'institute', 'education institution', 'academic institution'],
-  'professional.linkedin': ['linkedin', 'linkedin url', 'linkedin profile', 'linkedin.com'],
+  'professional.college': ['college', 'university', 'school', 'institute', 'education institution', 'academic institution', 'institution name', 'search college', 'college name', 'university name', 'name of college', 'name of institution'],
+  'professional.linkedin': ['linkedin', 'linkedin url', 'linkedin profile', 'linkedin profile url', 'linkedin.com', 'linked in'],
   'professional.github': ['github', 'github url', 'github profile', 'github.com'],
   'professional.portfolio': ['portfolio', 'website', 'portfolio url', 'personal website', 'personal link', 'portfolio link', 'other website'],
   'education.tenth.schoolOrCollege': ['10th school', 'class 10 school', 'ssc school', 'matriculation school', '10th board school', 'high school name', 'tenth school', 'class x school', '10th institution', 'school (10th)'],
@@ -49,7 +54,7 @@ const KEYWORDS: Record<string, string[]> = {
   'education.twelfthOrDiploma.fieldOfStudy': ['12th stream', '12th subject', 'hsc stream', 'diploma branch', 'diploma specialization', 'intermediate stream', 'intermediate specialization'],
   'education.twelfthOrDiploma.passingYear': ['12th passing year', 'hsc passing year', 'diploma passing year', '12th graduation year', 'intermediate passing year', 'twelfth passing year', '12th year of passing'],
   'education.twelfthOrDiploma.grade': ['12th marks', '12th cgpa', 'hsc marks', 'hsc percentage', 'diploma percentage', 'diploma gpa', '12th grade', 'intermediate percentage', 'twelfth marks', 'hsc grade'],
-  'education.ug.schoolOrCollege': ['ug college', 'ug university', 'undergrad college', 'undergrad university', 'graduation college', 'bachelor college', 'graduation university', 'bachelor university', 'college name', 'university name'],
+  'education.ug.schoolOrCollege': ['ug college', 'ug university', 'undergrad college', 'undergrad university', 'graduation college', 'bachelor college', 'graduation university', 'bachelor university', 'college name', 'university name', 'search college', 'institution', 'affiliated college', 'name of college'],
   'education.ug.degree': ['ug degree', 'undergrad degree', 'graduation degree', 'bachelors degree', 'bachelor degree', 'ug qualification', 'graduation qualification', 'degree name'],
   'education.ug.fieldOfStudy': ['ug stream', 'ug major', 'ug specialization', 'graduation stream', 'undergrad major', 'bachelors stream', 'graduation branch', 'graduation specialization', 'major', 'branch'],
   'education.ug.passingYear': ['ug passing year', 'ug graduation year', 'graduation passing year', 'ug year of passing', 'graduation year'],
@@ -65,18 +70,89 @@ const KEYWORDS: Record<string, string[]> = {
   'jobInfo.preferredLocation': ['preferred location', 'desired location', 'work location preference', 'preferred work location', 'location preference']
 };
 
+const AUTOCOMPLETE_TO_PATH: Record<string, string> = {
+  name: 'personal.fullName',
+  'given-name': 'personal.firstName',
+  'family-name': 'personal.lastName',
+  email: 'personal.email',
+  tel: 'personal.phone',
+  'tel-national': 'personal.phone',
+  'street-address': 'personal.address',
+  'address-line1': 'personal.address',
+  'address-line2': 'personal.address',
+  'address-level2': 'personal.city',
+  'address-level1': 'personal.state',
+  country: 'personal.country',
+  'country-name': 'personal.country',
+  'postal-code': 'personal.postalCode',
+  organization: 'professional.currentCompany',
+  'organization-title': 'professional.jobTitle',
+  url: 'professional.portfolio',
+};
+
+function normalizeFieldText(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/\*/g, '')
+    .replace(/[:\-_]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function matchByInputType(field: ScannedFieldMetadata): MatchResult | null {
+  const type = (field.type || '').toLowerCase();
+  const pathByType: Record<string, string> = {
+    email: 'personal.email',
+    tel: 'personal.phone',
+    url: 'professional.portfolio',
+  };
+  const path = pathByType[type];
+  if (!path) return null;
+  return { fieldPath: path, confidence: 0.88, matchedValue: '' };
+}
+
+function matchByAutocomplete(field: ScannedFieldMetadata): MatchResult | null {
+  const token = (field.autocomplete || '').toLowerCase().split(/\s+/)[0];
+  if (!token || token === 'off' || token === 'on') return null;
+  const path = AUTOCOMPLETE_TO_PATH[token];
+  if (!path) return null;
+  return { fieldPath: path, confidence: 0.92, matchedValue: '' };
+}
+
 // Heuristic matching logic
 export function matchFieldHeuristically(
   field: ScannedFieldMetadata,
   profile: UserProfile,
   learningMappings: LearningMapping[]
 ): MatchResult | null {
-  const label = (field.label || '').toLowerCase().trim();
-  const placeholder = (field.placeholder || '').toLowerCase().trim();
-  const ariaLabel = (field.ariaLabel || '').toLowerCase().trim();
-  const name = (field.htmlName || '').toLowerCase().trim();
-  const id = (field.htmlId || '').toLowerCase().trim();
-  const surrounding = (field.surroundingText || '').toLowerCase().trim();
+  const label = normalizeFieldText(field.label || '');
+  const placeholder = normalizeFieldText(field.placeholder || '');
+  const ariaLabel = normalizeFieldText(field.ariaLabel || '');
+  const name = normalizeFieldText(field.htmlName || '');
+  const id = normalizeFieldText(field.htmlId || '');
+  const surrounding = normalizeFieldText(field.surroundingText || '');
+
+  // Radio/checkbox option text must not drive mapping — use group question label only
+  const fieldType = (field.type || '').toLowerCase();
+  if (fieldType === 'radio' && field.controlKind !== 'radio-group') {
+    return null;
+  }
+  if (fieldType === 'checkbox' && label.length > 0 && label.length < 24) {
+    const optionLike = ['male', 'female', 'other', 'yes', 'no', 'true', 'false'];
+    if (optionLike.includes(label)) {
+      return null;
+    }
+  }
+
+  const autocompleteMatch = matchByAutocomplete(field);
+  if (autocompleteMatch) {
+    const val = getProfileValueByPath(profile, autocompleteMatch.fieldPath);
+    if (val) {
+      return { ...autocompleteMatch, matchedValue: val };
+    }
+  }
+
+  let typeHintMatch = matchByInputType(field);
 
   // 1. Check AI Learning history mappings first (100% confidence boost)
   const allLabelsToCheck = [label, placeholder, ariaLabel, name, id].filter(Boolean);
@@ -271,7 +347,78 @@ export function matchFieldHeuristically(
     }
   }
 
+  if (typeHintMatch) {
+    const val = getProfileValueByPath(profile, typeHintMatch.fieldPath);
+    if (val) {
+      return { ...typeHintMatch, matchedValue: val };
+    }
+  }
+
   return null;
+}
+
+/** Minimum confidence to auto-fill without manual confirmation */
+export const AUTO_FILL_CONFIDENCE_THRESHOLD = 0.62;
+
+export const AI_GENERATED_FIELD_PATH = 'ai.generated';
+
+const GEMINI_BATCH_SIZE = 18;
+
+function buildProfileSchema(profile: UserProfile) {
+  return {
+    personal: profile.personal,
+    professional: profile.professional,
+    education: profile.education,
+    jobInfo: profile.jobInfo,
+    customFields: profile.customFields.map((f) => ({ name: f.name, value: f.value })),
+  };
+}
+
+async function callGeminiJson<T>(
+  apiKey: string,
+  modelName: string,
+  prompt: string
+): Promise<T | null> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { responseMimeType: 'application/json' },
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Gemini API HTTP error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
+  return JSON.parse(cleaned) as T;
+}
+
+function fieldSummary(fields: ScannedFieldMetadata[]) {
+  return fields.map((f) => ({
+    scanId: f.scanId,
+    type: f.type,
+    controlKind: f.controlKind,
+    label: f.label,
+    placeholder: f.placeholder,
+    ariaLabel: f.ariaLabel,
+    name: f.htmlName,
+    id: f.htmlId,
+    surroundingText: f.surroundingText,
+  }));
+}
+
+function chunkFields(fields: ScannedFieldMetadata[]): ScannedFieldMetadata[][] {
+  const chunks: ScannedFieldMetadata[][] = [];
+  for (let i = 0; i < fields.length; i += GEMINI_BATCH_SIZE) {
+    chunks.push(fields.slice(i, i + GEMINI_BATCH_SIZE));
+  }
+  return chunks;
 }
 
 // Helper to get nested value from profile object
@@ -297,114 +444,121 @@ export function getProfileValueByPath(profile: UserProfile, path: string): strin
   return typeof current === 'string' ? current : '';
 }
 
-// Gemini API Matcher
+type GeminiFieldResolution = {
+  strategy?: 'profile' | 'generate' | 'skip';
+  fieldPath?: string | null;
+  answer?: string | null;
+  confidence?: number;
+};
+
+// Map unmatched fields to profile paths OR generate tailored answers (open questions).
+export async function resolveUnmatchedFieldsWithGemini(
+  fields: ScannedFieldMetadata[],
+  profile: UserProfile,
+  apiKey: string,
+  modelName: string,
+  options: {
+    jobDescription?: string;
+    includeProfileMapping?: boolean;
+    includeGeneratedAnswers?: boolean;
+  }
+): Promise<Record<string, MatchResult>> {
+  const results: Record<string, MatchResult> = {};
+  if (fields.length === 0 || !apiKey) return results;
+
+  const includeProfileMapping = options.includeProfileMapping !== false;
+  const includeGeneratedAnswers = options.includeGeneratedAnswers !== false;
+  const jobDescription = options.jobDescription?.trim() || '';
+
+  for (const batch of chunkFields(fields)) {
+    const fillable = batch.filter((f) => f.type !== 'file');
+    if (fillable.length === 0) continue;
+
+    const prompt = `You autofill job application forms for a candidate.
+
+JOB DESCRIPTION (context — may be empty):
+${jobDescription || '(none detected on page)'}
+
+CANDIDATE PROFILE (JSON):
+${JSON.stringify(buildProfileSchema(profile), null, 2)}
+
+UNMATCHED FORM FIELDS (JSON):
+${JSON.stringify(fieldSummary(fillable), null, 2)}
+
+For EACH field scanId, return a JSON object keyed by scanId. Each value:
+{
+  "strategy": "profile" | "generate" | "skip",
+  "fieldPath": "personal.email" | "professional.skills" | "jobInfo.expectedCTC" | "custom:<id>" | "system.agreement" | null,
+  "answer": "string to type/select/check — required when strategy is generate, or for radio/select/checkbox",
+  "confidence": 0.0 to 1.0
+}
+
+Rules:
+1. strategy "profile": use when the field clearly maps to profile data. Set fieldPath accordingly. Leave answer null (client reads profile).
+2. strategy "generate": use for open-ended questions (e.g. proud of, why this company, motivation, summary, cover letter prompts, achievements, "tell us about yourself", role-specific questions). Ground answers in profile${jobDescription ? ' and tailor to the job description' : ''}. Do NOT invent employers, degrees, dates, or certifications not in the profile.
+3. strategy "skip": file uploads or when insufficient data.
+4. Agreements/consent/terms checkboxes: strategy profile, fieldPath "system.agreement", confidence 1.0.
+5. Radio/select/checkbox: put the exact option label/value to choose in "answer" (strategy generate or profile).
+6. Salary/compensation: prefer jobInfo.currentCTC / jobInfo.expectedCTC from profile; if empty, give a brief professional answer without fabricating numbers unless profile has them.
+7. Textarea answers: 2–5 sentences, first person, professional.
+8. ${includeProfileMapping ? 'Use profile mapping when possible.' : 'Prefer generate for non-standard fields.'}
+9. ${includeGeneratedAnswers ? 'Use generate for open-ended questions.' : 'Do not generate — only map to profile or skip.'}
+10. Return ONLY raw JSON, no markdown.`;
+
+    try {
+      const raw = await callGeminiJson<Record<string, GeminiFieldResolution>>(
+        apiKey,
+        modelName,
+        prompt
+      );
+      if (!raw) continue;
+
+      for (const [scanId, resolution] of Object.entries(raw)) {
+        const conf = resolution.confidence ?? 0;
+        if (conf < 0.45) continue;
+
+        const strategy = resolution.strategy || 'skip';
+        if (strategy === 'skip') continue;
+
+        if (strategy === 'profile' && resolution.fieldPath) {
+          const val = getProfileValueByPath(profile, resolution.fieldPath);
+          const finalVal = val || resolution.answer || '';
+          if (!finalVal) continue;
+          results[scanId] = {
+            fieldPath: resolution.fieldPath,
+            confidence: conf,
+            matchedValue: finalVal,
+          };
+          continue;
+        }
+
+        if (strategy === 'generate' && resolution.answer?.trim()) {
+          results[scanId] = {
+            fieldPath: AI_GENERATED_FIELD_PATH,
+            confidence: conf,
+            matchedValue: resolution.answer.trim(),
+          };
+        }
+      }
+    } catch (error) {
+      console.error('Gemini resolveUnmatchedFields error:', error);
+    }
+  }
+
+  return results;
+}
+
+// Legacy: profile-path mapping only (used when provider is gemini).
 export async function matchFieldsWithGemini(
   fields: ScannedFieldMetadata[],
   profile: UserProfile,
   apiKey: string,
-  modelName: string = 'gemini-1.5-flash'
+  modelName: string = 'gemini-2.0-flash',
+  jobDescription: string = ''
 ): Promise<Record<string, MatchResult>> {
-  const results: Record<string, MatchResult> = {};
-
-  try {
-    const profileFieldsSchema = {
-      personal: {
-        fullName: profile.personal.fullName,
-        firstName: profile.personal.firstName,
-        lastName: profile.personal.lastName,
-        email: profile.personal.email,
-        phone: profile.personal.phone,
-        address: profile.personal.address,
-        city: profile.personal.city,
-        state: profile.personal.state,
-        country: profile.personal.country,
-        postalCode: profile.personal.postalCode
-      },
-      professional: {
-        jobTitle: profile.professional.jobTitle,
-        experience: profile.professional.experience,
-        currentCompany: profile.professional.currentCompany,
-        skills: profile.professional.skills,
-        education: profile.professional.education,
-        degree: profile.professional.degree,
-        college: profile.professional.college,
-        linkedin: profile.professional.linkedin,
-        github: profile.professional.github,
-        portfolio: profile.professional.portfolio
-      },
-      education: {
-        tenth: profile.education?.tenth || { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
-        twelfthOrDiploma: profile.education?.twelfthOrDiploma || { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
-        ug: profile.education?.ug || { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
-        pg: profile.education?.pg || { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
-      },
-      jobInfo: {
-        currentCTC: profile.jobInfo.currentCTC,
-        expectedCTC: profile.jobInfo.expectedCTC,
-        noticePeriod: profile.jobInfo.noticePeriod,
-        preferredLocation: profile.jobInfo.preferredLocation
-      },
-      customFields: profile.customFields.reduce((acc, field) => {
-        acc[field.id] = { name: field.name, value: field.value };
-        return acc;
-      }, {} as Record<string, { name: string, value: string }>)
-    };
-
-    const prompt = `You are an AI assistant designed to map HTML form inputs to a user's profile information.
-Below is the list of scanned form inputs (including checkboxes and radio buttons):
-${JSON.stringify(fields.map(f => ({ scanId: f.scanId, type: f.type, label: f.label, placeholder: f.placeholder, ariaLabel: f.ariaLabel, name: f.htmlName, id: f.htmlId, surroundingText: f.surroundingText })), null, 2)}
-
-Below is the user profile structure:
-${JSON.stringify(profileFieldsSchema, null, 2)}
-
-Task: Match each scanned form input to the most relevant profile field.
-Rules:
-1. Provide the mapping in JSON format.
-2. The JSON keys should be the "scanId" of the inputs.
-3. The value for each key should be an object: {"fieldPath": "path_string", "confidence": float_0_to_1}.
-4. "fieldPath" must be formatted like "personal.fullName", "professional.skills", "jobInfo.currentCTC", etc., or "custom:customFieldId" for custom fields.
-5. For checkbox or radio inputs representing agreements, consent, terms of service, or privacy policies (e.g. "I agree to the terms", "Privacy Policy", "Consent"), set fieldPath to "system.agreement" and confidence to 1.0.
-6. If no field fits the form input, do not include it or set fieldPath to null.
-7. Provide ONLY the raw JSON block without markdown formatting or code blocks.`;
-
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          responseMimeType: "application/json"
-        }
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Gemini API HTTP error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    
-    // Parse response
-    const rawMappings = JSON.parse(text.replace(/```json/g, '').replace(/```/g, '').trim());
-    
-    for (const [scanId, match] of Object.entries(rawMappings)) {
-      const m = match as { fieldPath: string | null; confidence: number };
-      if (m.fieldPath && m.confidence > 0.4) {
-        const val = getProfileValueByPath(profile, m.fieldPath);
-        if (val !== undefined && val !== '') {
-          results[scanId] = {
-            fieldPath: m.fieldPath,
-            confidence: m.confidence,
-            matchedValue: val
-          };
-        }
-      }
-    }
-  } catch (error) {
-    console.error("Gemini API error, falling back to heuristics:", error);
-  }
-
-  return results;
+  return resolveUnmatchedFieldsWithGemini(fields, profile, apiKey, modelName, {
+    jobDescription,
+    includeProfileMapping: true,
+    includeGeneratedAnswers: false,
+  });
 }

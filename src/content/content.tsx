@@ -2,28 +2,29 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import WidgetApp from './WidgetApp';
 import { scanFormFields, findLoginFields } from './FormScanner';
-import { fillFormFields } from './AutofillEngine';
+import { extractJobDescription } from './JobDescriptionScanner';
+import { fillFormFields, fillFormFieldsAsync, isFieldEmpty } from './AutofillEngine';
+import { AUTO_FILL_CONFIDENCE_THRESHOLD } from '../shared/ai';
+import { DomainRule } from '../shared/types';
 import '../index.css';
 
-// Keep track of what we filled to detect user manual overrides/corrections
 const filledFieldsMap = new Map<HTMLElement, {
   label: string;
   fieldPath: string;
   originalValue: string;
 }>();
 
-// Initialize the React Floating Widget inside a Shadow DOM
+let autofillInProgress = false;
+let lastAutofillAt = 0;
+
 function initWidget() {
-  // Check if widget is already injected
   if (document.getElementById('oneclick-autofill-root')) return;
 
   const hostDiv = document.createElement('div');
   hostDiv.id = 'oneclick-autofill-root';
-  
-  // Isolate widget styles from the host page using Shadow DOM
+
   const shadowRoot = hostDiv.attachShadow({ mode: 'open' });
-  
-  // Create stylesheet link pointing to our chrome extension css
+
   const linkEl = document.createElement('link');
   linkEl.rel = 'stylesheet';
   linkEl.href = chrome.runtime.getURL('content.css');
@@ -35,162 +36,259 @@ function initWidget() {
 
   document.body.appendChild(hostDiv);
 
-  // Render Widget
   const root = createRoot(container);
   root.render(<WidgetApp />);
 }
 
-// Check if domain rule allows autofill on load
-function checkAutoFillOnLoad() {
-  chrome.runtime.sendMessage({
-    action: 'getDomainRule',
-    domain: window.location.hostname
-  }, (response) => {
-    if (response && response.rule) {
-      const { enabled, autoFillOnLoad } = response.rule;
-      if (enabled && autoFillOnLoad) {
-        // Trigger automatic fill after a brief delay
-        setTimeout(() => {
-          triggerAutofill();
-        }, 1000);
-      }
-    }
+function fetchDomainRule(): Promise<DomainRule | null> {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage(
+      { action: 'getDomainRule', domain: window.location.hostname },
+      (response) => resolve(response?.rule ?? null)
+    );
   });
 }
 
-// Function to trigger scan and fill
-function triggerAutofill(profileId?: string) {
-  const targetProfileId = profileId || 'default';
-  
-  // 1. Fetch credentials if any exist for this domain, and populate them
-  chrome.runtime.sendMessage({
-    action: 'getCredentialForDomain',
-    domain: window.location.hostname
-  }, (response) => {
-    if (response && response.credential) {
-      const { username, password } = findLoginFields();
-      if (username && response.credential.username) {
-        fillFormFields([{ element: username, value: response.credential.username }]);
-      }
-      if (password && response.credential.password) {
-        fillFormFields([{ element: password, value: response.credential.password }]);
-      }
-    }
+function fetchGlobalEnabled(): Promise<boolean> {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({ action: 'getAppSettings' }, (response) => {
+      resolve(response?.settings?.globalEnabled !== false);
+    });
   });
-  
-  // Send scan request to background to match fields with AI (heuristic or LLM)
-  const { elements, metadata } = scanFormFields(document);
-  if (elements.length === 0) return;
+}
 
-  chrome.runtime.sendMessage({
-    action: 'matchFields',
-    fields: metadata,
-    profileId: targetProfileId
-  }, (response) => {
-    if (response && response.matches) {
-      const matches = response.matches; // map of scanId -> MatchResult
-      const fillPayload: { element: HTMLElement; value: string }[] = [];
+function fetchActiveProfileId(): Promise<string> {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({ action: 'getActiveProfileId' }, (response) => {
+      resolve(response?.activeProfileId || 'default');
+    });
+  });
+}
 
-      for (const el of elements) {
-        const scanId = el.getAttribute('data-autofill-scan-id');
-        if (scanId && matches[scanId]) {
-          const match = matches[scanId];
-          fillPayload.push({
-            element: el,
-            value: match.matchedValue
-          });
+async function shouldRunAutofill(options: {
+  manual: boolean;
+  skipConfirmation?: boolean;
+}): Promise<{ allowed: boolean; rule: DomainRule | null; reason?: string }> {
+  const globalEnabled = await fetchGlobalEnabled();
+  if (!globalEnabled) {
+    return { allowed: false, rule: null, reason: 'Extension is disabled in settings.' };
+  }
 
-          // Track this element for corrections detection
-          const labelText = metadata.find(m => m.scanId === scanId)?.label || 
-                            metadata.find(m => m.scanId === scanId)?.placeholder || '';
+  const rule = await fetchDomainRule();
+  if (!rule) {
+    return { allowed: options.manual, rule: null };
+  }
 
-          filledFieldsMap.set(el, {
-            label: labelText,
-            fieldPath: match.fieldPath,
-            originalValue: match.matchedValue
-          });
+  if (!rule.enabled && !options.manual) {
+    return { allowed: false, rule, reason: 'Automatic autofill is off for this site.' };
+  }
 
-          // Add listener to check for manual user changes (inputs/selects only)
-          if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
-            el.addEventListener('blur', handleFieldBlur);
+  if (
+    !options.manual &&
+    rule.requireConfirmation &&
+    !options.skipConfirmation &&
+    !window.confirm('OneClick Autofill AI: Fill detected form fields with your active profile?')
+  ) {
+    return { allowed: false, rule, reason: 'Autofill cancelled.' };
+  }
+
+  return { allowed: true, rule };
+}
+
+async function runAutofill(options: {
+  profileId?: string;
+  manual?: boolean;
+  force?: boolean;
+  skipConfirmation?: boolean;
+}): Promise<{ success: boolean; filledCount: number; error?: string }> {
+  if (autofillInProgress) {
+    return { success: false, filledCount: 0, error: 'Autofill already in progress.' };
+  }
+
+  const manual = options.manual === true;
+  const gate = await shouldRunAutofill({ manual, skipConfirmation: options.skipConfirmation });
+  if (!gate.allowed) {
+    return { success: false, filledCount: 0, error: gate.reason };
+  }
+
+  autofillInProgress = true;
+  try {
+    const targetProfileId = options.profileId || (await fetchActiveProfileId());
+    const force = options.force === true;
+
+    await new Promise<void>((resolve) => {
+      chrome.runtime.sendMessage(
+        { action: 'getCredentialForDomain', domain: window.location.hostname },
+        (response) => {
+          if (response?.credential) {
+            const { username, password } = findLoginFields();
+            if (username && response.credential.username && (force || isFieldEmpty(username))) {
+              fillFormFields([{ element: username, value: response.credential.username }]);
+            }
+            if (password && response.credential.password && (force || isFieldEmpty(password))) {
+              fillFormFields([{ element: password, value: response.credential.password }]);
+            }
           }
+          resolve();
         }
-      }
+      );
+    });
 
-      if (fillPayload.length > 0) {
-        const count = fillFormFields(fillPayload);
-        // Log to history
-        chrome.runtime.sendMessage({
-          action: 'logHistory',
-          domain: window.location.hostname,
-          fieldsCount: count,
-          profileId: targetProfileId
-        });
+    const { elements, metadata } = scanFormFields(document);
+    if (elements.length === 0) {
+      return { success: false, filledCount: 0, error: 'No fillable fields found on this page.' };
+    }
+
+    const eligibleElements: HTMLElement[] = [];
+    const eligibleMetadata = metadata.filter((m) => {
+      const el = elements.find((e) => e.getAttribute('data-autofill-scan-id') === m.scanId);
+      if (!el) return false;
+      if (!force && !isFieldEmpty(el)) return false;
+      eligibleElements.push(el);
+      return true;
+    });
+
+    if (eligibleMetadata.length === 0) {
+      return { success: true, filledCount: 0, error: 'All detected fields are already filled.' };
+    }
+
+    const jobDescription = extractJobDescription(document);
+
+    const matches: Record<string, { fieldPath: string; confidence: number; matchedValue: string }> =
+      await new Promise((resolve) => {
+        chrome.runtime.sendMessage(
+          {
+            action: 'matchFields',
+            fields: eligibleMetadata,
+            profileId: targetProfileId,
+            jobDescription,
+          },
+          (response) => resolve(response?.matches || {})
+        );
+      });
+
+    const fillPayload: { element: HTMLElement; value: string; controlKind?: string }[] = [];
+    const minConfidence = manual ? 0.4 : AUTO_FILL_CONFIDENCE_THRESHOLD;
+
+    for (const el of eligibleElements) {
+      const scanId = el.getAttribute('data-autofill-scan-id');
+      if (!scanId || !matches[scanId]) continue;
+
+      const match = matches[scanId];
+      if (match.confidence < minConfidence || !match.matchedValue) continue;
+
+      const meta = eligibleMetadata.find((m) => m.scanId === scanId);
+      fillPayload.push({
+        element: el,
+        value: match.matchedValue,
+        controlKind: meta?.controlKind,
+      });
+
+      const labelText = meta?.label || meta?.placeholder || '';
+
+      filledFieldsMap.set(el, {
+        label: labelText,
+        fieldPath: match.fieldPath,
+        originalValue: match.matchedValue,
+      });
+
+      if (
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement ||
+        el instanceof HTMLSelectElement
+      ) {
+        el.addEventListener('blur', handleFieldBlur);
       }
     }
-  });
+
+    if (fillPayload.length === 0) {
+      return { success: false, filledCount: 0, error: 'No confident field matches for this form.' };
+    }
+
+    const count = await fillFormFieldsAsync(fillPayload);
+    lastAutofillAt = Date.now();
+
+    chrome.runtime.sendMessage({
+      action: 'logHistory',
+      domain: window.location.hostname,
+      fieldsCount: count,
+      profileId: targetProfileId,
+    });
+
+    window.dispatchEvent(
+      new CustomEvent('oneclick-autofill-complete', { detail: { filledCount: count } })
+    );
+
+    return { success: true, filledCount: count };
+  } finally {
+    autofillInProgress = false;
+  }
 }
 
-// Listener for manual corrections
 function handleFieldBlur(e: Event) {
   const el = e.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
   const tracking = filledFieldsMap.get(el);
   if (!tracking) return;
 
-  const currentValue = el.type === 'checkbox' ? String((el as HTMLInputElement).checked) : el.value;
-  
+  const currentValue =
+    el.type === 'checkbox' ? String((el as HTMLInputElement).checked) : el.value;
+
   if (currentValue !== tracking.originalValue) {
-    // Value was modified by the user!
-    // Send background message to learn this correction
     chrome.runtime.sendMessage({
       action: 'learnCorrection',
       label: tracking.label,
-      currentValue: currentValue,
-      previousPath: tracking.fieldPath
+      currentValue,
+      previousPath: tracking.fieldPath,
     });
 
-    // Remove tracking to prevent duplicate logs
     filledFieldsMap.delete(el);
     el.removeEventListener('blur', handleFieldBlur);
   }
 }
 
-// Observe dynamic changes (MutationObserver)
-let mutationTimeout: any;
+let mutationTimeout: ReturnType<typeof setTimeout> | undefined;
+
 function setupMutationObserver() {
-  chrome.runtime.sendMessage({
-    action: 'getDomainRule',
-    domain: window.location.hostname
-  }, (response) => {
-    if (!response || !response.rule || !response.rule.enabled) return;
+  const observer = new MutationObserver(() => {
+    clearTimeout(mutationTimeout);
+    mutationTimeout = setTimeout(async () => {
+      if (Date.now() - lastAutofillAt < 800) return;
 
-    const observer = new MutationObserver(() => {
-      clearTimeout(mutationTimeout);
-      mutationTimeout = setTimeout(() => {
-        // If autoFillOnLoad is enabled, run auto-fill on newly detected fields
-        if (response.rule.autoFillOnLoad) {
-          triggerAutofill();
-        }
-      }, 1000);
-    });
+      const rule = await fetchDomainRule();
+      const globalEnabled = await fetchGlobalEnabled();
+      if (!globalEnabled || !rule?.enabled || !rule.autoFillOnLoad) return;
 
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true
-    });
+      await runAutofill({ manual: false });
+    }, 1200);
   });
+
+  if (document.body) {
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
 }
 
-// Listen to message calls from background or popup
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+async function checkAutoFillOnLoad() {
+  const rule = await fetchDomainRule();
+  const globalEnabled = await fetchGlobalEnabled();
+  if (!globalEnabled || !rule?.enabled || !rule.autoFillOnLoad) return;
+
+  setTimeout(() => {
+    runAutofill({ manual: false });
+  }, 900);
+}
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === 'triggerAutofill') {
-    triggerAutofill(message.profileId);
-    sendResponse({ success: true });
+    runAutofill({
+      profileId: message.profileId,
+      manual: true,
+      force: message.force === true,
+    }).then(sendResponse);
+    return true;
   }
-  return true;
+  return false;
 });
 
-// Run Init
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
     initWidget();

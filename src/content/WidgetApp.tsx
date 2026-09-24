@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Sparkles, Edit3, Settings, Save, X, Minimize2, Move, HelpCircle, User, Award, ListPlus, ToggleLeft, ToggleRight, Check, Key } from 'lucide-react';
-import { UserProfile, ManualMapping, AppSettings, DomainRule } from '../shared/types';
+import { Sparkles, Edit3, Settings, Save, X, Minimize2, ToggleLeft, ToggleRight, Key } from 'lucide-react';
+import { UserProfile, DomainRule } from '../shared/types';
+import { ExtensionLogo } from '../shared/ExtensionLogo';
 import { findLoginFields } from './FormScanner';
 
 export default function WidgetApp() {
@@ -14,7 +15,7 @@ export default function WidgetApp() {
   const [domainRule, setDomainRule] = useState<DomainRule>({
     domain: window.location.hostname,
     enabled: true,
-    autoFillOnLoad: false,
+    autoFillOnLoad: true,
     requireConfirmation: false
   });
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'info' | 'success' | 'error' } | null>(null);
@@ -36,7 +37,19 @@ export default function WidgetApp() {
       }
     };
     chrome.runtime.onMessage.addListener(listener);
-    return () => chrome.runtime.onMessage.removeListener(listener);
+
+    const onAutofillDone = (e: Event) => {
+      const detail = (e as CustomEvent<{ filledCount: number }>).detail;
+      if (detail?.filledCount > 0) {
+        showStatus(`Auto-filled ${detail.filledCount} field${detail.filledCount === 1 ? '' : 's'}`, 'success');
+      }
+    };
+    window.addEventListener('oneclick-autofill-complete', onAutofillDone);
+
+    return () => {
+      chrome.runtime.onMessage.removeListener(listener);
+      window.removeEventListener('oneclick-autofill-complete', onAutofillDone);
+    };
   }, []);
 
   const loadData = () => {
@@ -111,13 +124,16 @@ export default function WidgetApp() {
 
     chrome.runtime.sendMessage({
       action: 'autofillPage',
-      profileId: activeProfileId
+      profileId: activeProfileId,
+      force: false,
     }, (response) => {
       setIsFilling(false);
-      if (response && response.success) {
-        showStatus(`Filled ${response.filledCount} fields successfully!`, "success");
+      if (response?.success && (response.filledCount ?? 0) > 0) {
+        showStatus(`Filled ${response.filledCount} field${response.filledCount === 1 ? '' : 's'} successfully!`, "success");
+      } else if (response?.success && response.filledCount === 0) {
+        showStatus(response.error || "All fields are already filled.", "info");
       } else {
-        showStatus(response?.error || "No fields filled.", "error");
+        showStatus(response?.error || "No matching fields found.", "error");
       }
     });
   };
@@ -250,13 +266,35 @@ export default function WidgetApp() {
   };
 
   const toggleDomainEnable = () => {
-    const updated = { ...domainRule, enabled: !domainRule.enabled };
+    const enabling = !domainRule.enabled;
+    const updated = {
+      ...domainRule,
+      enabled: enabling,
+      autoFillOnLoad: enabling ? true : domainRule.autoFillOnLoad,
+    };
     setDomainRule(updated);
     chrome.runtime.sendMessage({
       action: 'saveDomainRule',
       rule: updated
     }, () => {
-      showStatus(updated.enabled ? "Autofill enabled for this site" : "Autofill disabled for this site", "info");
+      showStatus(
+        enabling ? "Autofill enabled — forms will fill automatically" : "Autofill disabled for this site",
+        "info"
+      );
+      if (enabling) {
+        chrome.runtime.sendMessage({ action: 'autofillPage', profileId: activeProfileId });
+      }
+    });
+  };
+
+  const toggleAutoFillOnLoad = () => {
+    const updated = { ...domainRule, autoFillOnLoad: !domainRule.autoFillOnLoad };
+    setDomainRule(updated);
+    chrome.runtime.sendMessage({ action: 'saveDomainRule', rule: updated }, () => {
+      showStatus(
+        updated.autoFillOnLoad ? "Auto-fill on page load enabled" : "Auto-fill on page load disabled",
+        "info"
+      );
     });
   };
 
@@ -312,12 +350,12 @@ export default function WidgetApp() {
               setHasPasswordField(document.querySelector('input[type="password"]') !== null);
             }
           }}
-          className={`flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-tr from-brand-600 to-indigo-500 shadow-lg shadow-brand-500/30 transition-transform active:scale-95 cursor-pointer hover:shadow-brand-500/50 hover:brightness-110 border border-brand-400/30 ${
-            isFilling ? 'animate-spin' : 'hover:scale-105'
+          className={`flex h-12 w-12 items-center justify-center rounded-full overflow-hidden shadow-lg shadow-brand-500/30 transition-transform active:scale-95 cursor-pointer hover:shadow-brand-500/50 hover:brightness-110 border-2 border-brand-400/40 bg-slate-950 ${
+            isFilling ? 'animate-pulse opacity-80' : 'hover:scale-105'
           }`}
           title="OneClick Autofill AI"
         >
-          <Sparkles className="h-6 w-6 text-white" />
+          <ExtensionLogo className="h-12 w-12" />
         </button>
       )}
 
@@ -452,7 +490,7 @@ export default function WidgetApp() {
           {/* Header */}
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-brand-400" />
+              <ExtensionLogo className="h-6 w-6 rounded-md" />
               <span className="font-semibold text-sm tracking-wide bg-gradient-to-r from-brand-400 to-indigo-300 bg-clip-text text-transparent">OneClick Autofill AI</span>
             </div>
             <div className="flex items-center gap-1">
@@ -505,12 +543,8 @@ export default function WidgetApp() {
           <div className="flex flex-col gap-2">
             <button
               onClick={handleAutofill}
-              disabled={!domainRule.enabled || isFilling}
-              className={`w-full py-2.5 px-4 rounded-xl font-medium text-xs shadow-md shadow-brand-600/20 transition flex items-center justify-center gap-2 cursor-pointer ${
-                domainRule.enabled 
-                  ? 'bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 hover:scale-[1.02] text-white' 
-                  : 'bg-slate-850 border border-slate-850 text-slate-500 cursor-not-allowed'
-              }`}
+              disabled={isFilling}
+              className="w-full py-2.5 px-4 rounded-xl font-medium text-xs shadow-md shadow-brand-600/20 transition flex items-center justify-center gap-2 cursor-pointer bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 hover:scale-[1.02] text-white disabled:opacity-60"
             >
               <Sparkles className="w-4 h-4" />
               {isFilling ? 'Filling Form...' : 'Autofill Page'}
@@ -519,16 +553,14 @@ export default function WidgetApp() {
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={startManualMapping}
-                disabled={!domainRule.enabled}
-                className="py-2 px-3 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-350 hover:text-white text-[11px] font-medium transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                className="py-2 px-3 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-350 hover:text-white text-[11px] font-medium transition flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <Edit3 className="w-3.5 h-3.5 text-indigo-400" />
                 Manual Map
               </button>
               <button
                 onClick={handleSaveTemplate}
-                disabled={!domainRule.enabled}
-                className="py-2 px-3 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-350 hover:text-white text-[11px] font-medium transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                className="py-2 px-3 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-350 hover:text-white text-[11px] font-medium transition flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <Save className="w-3.5 h-3.5 text-brand-400" />
                 Save Template
@@ -546,14 +578,34 @@ export default function WidgetApp() {
           </div>
 
           {/* Quick Settings & Status */}
-          <div className="border-t border-slate-800/80 pt-3 flex flex-col gap-2">
+          <div className="border-t border-slate-800/80 pt-3 flex flex-col gap-2.5">
             <div className="flex justify-between items-center text-xs">
-              <span className="text-slate-400">Enable on this site</span>
+              <div>
+                <span className="text-slate-300 font-medium">Automatic filling on this site</span>
+                <p className="text-[10px] text-slate-500 mt-0.5">Fill empty fields when the page loads or changes</p>
+              </div>
               <button
                 onClick={toggleDomainEnable}
                 className="text-slate-400 hover:text-white transition cursor-pointer"
               >
                 {domainRule.enabled ? (
+                  <ToggleRight className="w-7 h-7 text-brand-500" />
+                ) : (
+                  <ToggleLeft className="w-7 h-7 text-slate-650" />
+                )}
+              </button>
+            </div>
+            <div className="flex justify-between items-center text-xs">
+              <div>
+                <span className="text-slate-300 font-medium">Auto-fill when page loads</span>
+                <p className="text-[10px] text-slate-500 mt-0.5">Matches and fills empty fields automatically</p>
+              </div>
+              <button
+                onClick={toggleAutoFillOnLoad}
+                disabled={!domainRule.enabled}
+                className="text-slate-400 hover:text-white transition cursor-pointer disabled:opacity-40"
+              >
+                {domainRule.autoFillOnLoad && domainRule.enabled ? (
                   <ToggleRight className="w-7 h-7 text-brand-500" />
                 ) : (
                   <ToggleLeft className="w-7 h-7 text-slate-650" />

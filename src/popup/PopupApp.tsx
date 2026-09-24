@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Sliders, ExternalLink, ShieldCheck, Flame, ToggleLeft, ToggleRight, CheckCircle, RefreshCcw } from 'lucide-react';
+import { Sparkles, ExternalLink, ShieldCheck, Flame, ToggleLeft, ToggleRight, RefreshCcw } from 'lucide-react';
 import { UserProfile, DomainRule } from '../shared/types';
+import { ExtensionLogo } from '../shared/ExtensionLogo';
 
 export default function PopupApp() {
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
@@ -9,7 +10,7 @@ export default function PopupApp() {
   const [domainRule, setDomainRule] = useState<DomainRule>({
     domain: '',
     enabled: true,
-    autoFillOnLoad: false,
+    autoFillOnLoad: true,
     requireConfirmation: false
   });
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -99,8 +100,10 @@ export default function PopupApp() {
       profileId: activeProfileId
     }, (response) => {
       setIsFilling(false);
-      if (response && response.success) {
-        showStatus("Form populated successfully!");
+      if (response?.success && (response.filledCount ?? 0) > 0) {
+        showStatus(`Filled ${response.filledCount} field${response.filledCount === 1 ? '' : 's'} successfully!`);
+      } else if (response?.success) {
+        showStatus(response.error || "All fields are already filled.");
       } else {
         showStatus(response?.error || "Autofill failed or no fields found.");
       }
@@ -123,7 +126,7 @@ export default function PopupApp() {
       {/* Header */}
       <div className="flex justify-between items-center pb-3 border-b border-slate-800">
         <div className="flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-brand-400 animate-pulse" />
+          <ExtensionLogo className="h-8 w-8 rounded-lg" />
           <span className="font-semibold text-base bg-gradient-to-r from-brand-400 to-indigo-300 bg-clip-text text-transparent">OneClick Autofill AI</span>
         </div>
         <button
@@ -161,12 +164,8 @@ export default function PopupApp() {
           <div className="flex flex-col gap-2">
             <button
               onClick={triggerAutofill}
-              disabled={!domainRule.enabled || isFilling}
-              className={`w-full py-2.5 px-4 rounded-xl font-medium text-xs shadow-md shadow-brand-600/20 transition flex items-center justify-center gap-2 cursor-pointer ${
-                domainRule.enabled 
-                  ? 'bg-gradient-to-r from-brand-600 to-indigo-650 hover:from-brand-500 hover:to-indigo-500 hover:scale-[1.01] text-white' 
-                  : 'bg-slate-900 border border-slate-800 text-slate-500 cursor-not-allowed'
-              }`}
+              disabled={isFilling}
+              className="w-full py-2.5 px-4 rounded-xl font-medium text-xs shadow-md shadow-brand-600/20 transition flex items-center justify-center gap-2 cursor-pointer bg-gradient-to-r from-brand-600 to-indigo-650 hover:from-brand-500 hover:to-indigo-500 hover:scale-[1.01] text-white disabled:opacity-60"
             >
               {isFilling ? (
                 <>
@@ -186,7 +185,7 @@ export default function PopupApp() {
           <div className="flex-1 flex flex-col gap-2.5 border-t border-slate-850 pt-3">
             <div className="flex justify-between items-center text-xs">
               <div>
-                <p className="font-medium text-slate-200">Enable on this domain</p>
+                <p className="font-medium text-slate-200">Automatic filling on this domain</p>
                 <p className="text-[10px] text-slate-500 truncate max-w-[180px]">{currentDomain}</p>
               </div>
               <button onClick={toggleDomainEnabled} className="cursor-pointer">
