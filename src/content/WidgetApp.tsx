@@ -2,6 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from
 import { Sparkles, Edit3, Settings, Save, X, Minimize2, ToggleLeft, ToggleRight, Key } from 'lucide-react';
 import { UserProfile, DomainRule } from '../shared/types';
 import { ExtensionLogo } from '../shared/ExtensionLogo';
+import { applyThemeSetting, initExtensionTheme, watchThemeChanges } from '../shared/theme';
 import { findLoginFields } from './FormScanner';
 
 export default function WidgetApp() {
@@ -84,6 +85,17 @@ export default function WidgetApp() {
       return clampAnchor(panelTop, prev.right, panelHeight, getPanelWidthPx());
     });
   }, [clampAnchor, computePanelTop, getPanelWidthPx]);
+
+  useEffect(() => {
+    const container = document.getElementById('oneclick-widget-container');
+    let stopWatch = () => {};
+    initExtensionTheme(container).then(() => {
+      stopWatch = watchThemeChanges((_resolved, setting) => {
+        applyThemeSetting(setting, container);
+      });
+    });
+    return () => stopWatch();
+  }, []);
 
   // Fetch profiles and configuration on mount
   useEffect(() => {
@@ -453,7 +465,7 @@ export default function WidgetApp() {
 
   return (
     <div
-      className="fixed z-[9999999] select-none font-sans text-brand-900 antialiased"
+      className="fixed z-[9999999] select-none font-sans ui-page antialiased"
       style={{
         top: `${anchorPosition.top}px`,
         right: `${anchorPosition.right}px`,
@@ -615,7 +627,7 @@ export default function WidgetApp() {
       {expanded && (
         <div
           ref={panelRef}
-          className="rounded-2xl bg-cream/98 border border-brand-800/20 p-4 sm:p-5 shadow-2xl backdrop-blur-md flex flex-col gap-4 sm:gap-5 box-border"
+          className="rounded-2xl ui-panel p-4 sm:p-5 shadow-2xl backdrop-blur-md flex flex-col gap-4 sm:gap-5 box-border dark:bg-brand-900/95"
           style={{
             width: panelWidth,
             maxHeight: panelMaxHeight,

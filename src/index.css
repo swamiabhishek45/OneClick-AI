@@ -6,12 +6,67 @@
   body {
     @apply bg-cream text-brand-900 antialiased;
   }
+
+  html.dark body {
+    @apply bg-brand-950 text-cream-100;
+  }
+}
+
+@layer components {
+  .ui-page {
+    @apply bg-cream text-brand-900 dark:bg-brand-950 dark:text-cream-100;
+  }
+
+  .ui-sidebar {
+    @apply bg-white/95 border-brand-800/15 dark:bg-brand-900/95 dark:border-brand-600/25;
+  }
+
+  .ui-panel {
+    @apply bg-white/90 border border-brand-800/15 dark:bg-brand-900/75 dark:border-brand-500/20;
+  }
+
+  .ui-panel-soft {
+    @apply bg-white/75 border border-brand-800/15 dark:bg-brand-900/55 dark:border-brand-500/15;
+  }
+
+  .ui-heading {
+    @apply text-brand-800 dark:text-cream-100;
+  }
+
+  .ui-muted {
+    @apply text-brand-700/65 dark:text-cream-200/65;
+  }
+
+  .ui-label {
+    @apply text-brand-700/75 dark:text-cream-200/75;
+  }
+
+  .ui-input {
+    @apply bg-white border border-brand-800/20 text-brand-900 placeholder:text-brand-600/40
+      focus:outline-none focus:border-brand-600 focus:ring-1 focus:ring-brand-600/25
+      dark:bg-brand-950 dark:border-brand-600/30 dark:text-cream-100 dark:placeholder:text-cream-300/35
+      dark:focus:border-brand-400 dark:focus:ring-brand-400/25 transition;
+  }
+
+  .ui-nav-idle {
+    @apply text-brand-700/70 hover:bg-brand-900/10 hover:text-brand-900
+      dark:text-cream-200/70 dark:hover:bg-brand-800/50 dark:hover:text-cream-100;
+  }
+
+  .ui-nav-active {
+    @apply bg-brand-600/10 text-brand-700 border border-brand-500/25
+      dark:bg-brand-500/15 dark:text-cream-100 dark:border-brand-400/30;
+  }
 }
 
 #oneclick-widget-container {
   font-size: 14px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
+}
+
+#oneclick-widget-container.dark {
+  @apply bg-transparent text-cream-100;
 }
 
 ::-webkit-scrollbar {
@@ -23,11 +78,23 @@
   background: rgba(55, 82, 62, 0.08);
 }
 
+html.dark ::-webkit-scrollbar-track {
+  background: rgba(226, 245, 182, 0.06);
+}
+
 ::-webkit-scrollbar-thumb {
   background: rgba(55, 82, 62, 0.35);
   border-radius: 4px;
 }
 
+html.dark ::-webkit-scrollbar-thumb {
+  background: rgba(143, 181, 154, 0.35);
+}
+
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(55, 82, 62, 0.55);
+}
+
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(143, 181, 154, 0.55);
 }

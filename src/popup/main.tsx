@@ -2,13 +2,23 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import PopupApp from './PopupApp';
 import '../index.css';
+import { initExtensionTheme, watchThemeChanges, applyThemeSetting } from '../shared/theme';
 
-const container = document.getElementById('root');
-if (container) {
-  const root = createRoot(container);
-  root.render(
-    <React.StrictMode>
-      <PopupApp />
-    </React.StrictMode>
-  );
+async function bootstrap() {
+  await initExtensionTheme();
+  watchThemeChanges((_resolved, setting) => {
+    applyThemeSetting(setting);
+  });
+
+  const container = document.getElementById('root');
+  if (container) {
+    const root = createRoot(container);
+    root.render(
+      <React.StrictMode>
+        <PopupApp />
+      </React.StrictMode>
+    );
+  }
 }
+
+bootstrap();

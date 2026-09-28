@@ -122,16 +122,16 @@ export default function PopupApp() {
   const activeProfile = profiles.find(p => p.id === activeProfileId) || profiles[0];
 
   return (
-    <div className="flex flex-col h-full bg-cream text-brand-900 p-4 border border-brand-800/15 rounded-lg">
+    <div className="flex flex-col h-full ui-page p-4 border border-brand-800/15 dark:border-brand-500/20 rounded-lg">
       {/* Header */}
-      <div className="flex justify-between items-center pb-3 border-b border-brand-800/15">
+      <div className="flex justify-between items-center pb-3 border-b border-brand-800/15 dark:border-brand-500/20">
         <div className="flex items-center gap-2">
           <ExtensionLogo className="h-8 w-8 rounded-lg" />
-          <span className="font-semibold text-base text-brand-800">OneClick Autofill AI</span>
+          <span className="font-semibold text-base ui-heading">OneClick Autofill AI</span>
         </div>
         <button
           onClick={openDashboard}
-          className="p-1.5 rounded-lg bg-white border border-brand-800/20 hover:bg-cream-200 text-brand-700 hover:text-brand-900 transition cursor-pointer flex items-center gap-1 text-[10px] font-medium"
+          className="p-1.5 rounded-lg ui-input hover:bg-cream-200 dark:hover:bg-brand-800/50 transition cursor-pointer flex items-center gap-1 text-[10px] font-medium"
         >
           <ExternalLink className="w-3.5 h-3.5" />
           Dashboard
@@ -142,14 +142,14 @@ export default function PopupApp() {
       {currentDomain ? (
         <div className="flex-1 flex flex-col gap-4 pt-4">
           {/* Active Profile */}
-          <div className="bg-white/90 border border-brand-800/15 rounded-xl p-3">
+          <div className="ui-panel rounded-xl p-3">
             <label className="block text-[10px] font-semibold text-brand-700/75 uppercase tracking-wider mb-1.5">
               Active User Profile
             </label>
             <select
               value={activeProfileId}
               onChange={handleProfileChange}
-              className="w-full bg-white border border-brand-800/25 rounded-lg px-2.5 py-1.5 text-xs text-brand-900 focus:outline-none focus:border-brand-600 cursor-pointer"
+              className="w-full ui-input rounded-lg px-2.5 py-1.5 text-xs cursor-pointer"
             >
               {profiles.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
@@ -182,7 +182,7 @@ export default function PopupApp() {
           </div>
 
           {/* Domain Specific Configuration */}
-          <div className="flex-1 flex flex-col gap-2.5 border-t border-brand-800/15 pt-3">
+          <div className="flex-1 flex flex-col gap-2.5 border-t border-brand-800/15 dark:border-brand-500/20 pt-3">
             <div className="flex justify-between items-center text-xs">
               <div>
                 <p className="font-medium text-brand-900">Automatic filling on this domain</p>

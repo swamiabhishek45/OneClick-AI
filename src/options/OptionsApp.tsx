@@ -26,6 +26,8 @@ import {
   CustomFieldSection,
 } from '../shared/types';
 import { ExtensionLogo } from '../shared/ExtensionLogo';
+import { applyThemeSetting } from '../shared/theme';
+import type { AppSettings as AppSettingsType } from '../shared/types';
 import { SectionCustomFields } from './SectionCustomFields';
 import {
   ProfileSection,
@@ -79,6 +81,12 @@ export default function OptionsApp() {
   useEffect(() => {
     loadAllData();
   }, []);
+
+  useEffect(() => {
+    if (appSettings?.theme) {
+      applyThemeSetting(appSettings.theme);
+    }
+  }, [appSettings?.theme]);
 
   const loadAllData = async () => {
     try {
@@ -381,6 +389,7 @@ export default function OptionsApp() {
     if (!appSettings) return;
     try {
       await saveAppSettings(appSettings);
+      applyThemeSetting(appSettings.theme);
       showStatus("Settings saved successfully!");
     } catch (e) {
       showStatus("Failed to save settings", "error");
@@ -458,9 +467,9 @@ export default function OptionsApp() {
   };
 
   return (
-    <div className="flex h-screen bg-cream text-brand-900 overflow-hidden font-sans">
+    <div className="flex h-screen ui-page overflow-hidden font-sans">
       {/* Sidebar Panel */}
-      <aside className="w-64 bg-white/95 border-r border-brand-800/15 flex flex-col justify-between shrink-0 shadow-sm">
+      <aside className="w-64 ui-sidebar border-r flex flex-col justify-between shrink-0 shadow-sm">
         <div>
           {/* Logo Branding */}
           <div className="p-6 flex items-center gap-2.5 border-b border-brand-800/15">
@@ -479,8 +488,8 @@ export default function OptionsApp() {
               onClick={() => setActiveTab('profiles')}
               className={`w-full py-2.5 px-4 rounded-xl text-left text-xs font-semibold flex items-center gap-3 cursor-pointer transition ${
                 activeTab === 'profiles' 
-                  ? 'bg-brand-600/10 text-brand-700 border border-brand-500/25' 
-                  : 'text-brand-700/70 hover:bg-brand-900/8 hover:text-brand-900 border border-transparent'
+                  ? 'ui-nav-active' 
+                  : 'ui-nav-idle border border-transparent'
               }`}
             >
               <User className="w-4 h-4" />
@@ -491,8 +500,8 @@ export default function OptionsApp() {
               onClick={() => setActiveTab('resumes')}
               className={`w-full py-2.5 px-4 rounded-xl text-left text-xs font-semibold flex items-center gap-3 cursor-pointer transition ${
                 activeTab === 'resumes' 
-                  ? 'bg-brand-600/10 text-brand-700 border border-brand-500/25' 
-                  : 'text-brand-700/70 hover:bg-brand-900/8 hover:text-brand-900 border border-transparent'
+                  ? 'ui-nav-active' 
+                  : 'ui-nav-idle border border-transparent'
               }`}
             >
               <FileText className="w-4 h-4" />
@@ -503,8 +512,8 @@ export default function OptionsApp() {
               onClick={() => setActiveTab('templates')}
               className={`w-full py-2.5 px-4 rounded-xl text-left text-xs font-semibold flex items-center gap-3 cursor-pointer transition ${
                 activeTab === 'templates' 
-                  ? 'bg-brand-600/10 text-brand-700 border border-brand-500/25' 
-                  : 'text-brand-700/70 hover:bg-brand-900/8 hover:text-brand-900 border border-transparent'
+                  ? 'ui-nav-active' 
+                  : 'ui-nav-idle border border-transparent'
               }`}
             >
               <FileCode className="w-4 h-4" />
@@ -515,8 +524,8 @@ export default function OptionsApp() {
               onClick={() => setActiveTab('history')}
               className={`w-full py-2.5 px-4 rounded-xl text-left text-xs font-semibold flex items-center gap-3 cursor-pointer transition ${
                 activeTab === 'history' 
-                  ? 'bg-brand-600/10 text-brand-700 border border-brand-500/25' 
-                  : 'text-brand-700/70 hover:bg-brand-900/8 hover:text-brand-900 border border-transparent'
+                  ? 'ui-nav-active' 
+                  : 'ui-nav-idle border border-transparent'
               }`}
             >
               <History className="w-4 h-4" />
@@ -527,8 +536,8 @@ export default function OptionsApp() {
               onClick={() => setActiveTab('credentials')}
               className={`w-full py-2.5 px-4 rounded-xl text-left text-xs font-semibold flex items-center gap-3 cursor-pointer transition ${
                 activeTab === 'credentials' 
-                  ? 'bg-brand-600/10 text-brand-700 border border-brand-500/25' 
-                  : 'text-brand-700/70 hover:bg-brand-900/8 hover:text-brand-900 border border-transparent'
+                  ? 'ui-nav-active' 
+                  : 'ui-nav-idle border border-transparent'
               }`}
             >
               <Key className="w-4 h-4" />
@@ -539,8 +548,8 @@ export default function OptionsApp() {
               onClick={() => setActiveTab('settings')}
               className={`w-full py-2.5 px-4 rounded-xl text-left text-xs font-semibold flex items-center gap-3 cursor-pointer transition ${
                 activeTab === 'settings' 
-                  ? 'bg-brand-600/10 text-brand-700 border border-brand-500/25' 
-                  : 'text-brand-700/70 hover:bg-brand-900/8 hover:text-brand-900 border border-transparent'
+                  ? 'ui-nav-active' 
+                  : 'ui-nav-idle border border-transparent'
               }`}
             >
               <Settings className="w-4 h-4" />
@@ -568,7 +577,7 @@ export default function OptionsApp() {
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col bg-cream overflow-hidden relative">
+      <main className="flex-1 flex flex-col ui-page overflow-hidden relative">
         {/* Top Status Alert */}
         {statusMessage && (
           <div className={`absolute top-4 right-4 z-50 py-2 px-4 rounded-xl text-xs font-semibold shadow-lg animate-in fade-in slide-in-from-top-3 ${
@@ -855,7 +864,7 @@ export default function OptionsApp() {
               <h3 className="text-xs font-bold uppercase tracking-wider text-brand-700/75 mb-1">Your Resumes ({resumes.length})</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {resumes.map(r => (
-                  <div key={r.id} className="bg-white/90 border border-brand-800/15 rounded-xl p-4 flex justify-between items-center">
+                  <div key={r.id} className="ui-panel rounded-xl p-4 flex justify-between items-center">
                     <div className="flex items-center gap-3">
                       <div className="h-9 w-9 rounded-lg bg-brand-100 border border-brand-300/50 flex items-center justify-center text-[10px] font-bold text-brand-700 uppercase">
                         {r.fileType}
@@ -890,7 +899,7 @@ export default function OptionsApp() {
                   </div>
                 ))}
                 {resumes.length === 0 && (
-                  <div className="col-span-2 text-center py-8 bg-white/75 border border-brand-800/15 rounded-xl text-xs text-brand-600/70">
+                  <div className="col-span-2 text-center py-8 ui-panel-soft rounded-xl text-xs text-brand-600/70">
                     No resumes uploaded. Add a PDF or DOCX file to enable resume autofill.
                   </div>
                 )}
@@ -926,7 +935,7 @@ export default function OptionsApp() {
                 {manualMappings
                   .filter(m => m.domain.toLowerCase().includes(searchQuery.toLowerCase()))
                   .map(m => (
-                    <div key={m.id} className="bg-white/90 border border-brand-800/15 rounded-xl p-4 flex justify-between items-start gap-4">
+                    <div key={m.id} className="ui-panel rounded-xl p-4 flex justify-between items-start gap-4">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-bold text-brand-800">{m.domain}</span>
@@ -948,7 +957,7 @@ export default function OptionsApp() {
                     </div>
                   ))}
                 {manualMappings.length === 0 && (
-                  <div className="col-span-2 text-center py-8 bg-white/75 border border-brand-800/15 rounded-xl text-xs text-brand-600/70">
+                  <div className="col-span-2 text-center py-8 ui-panel-soft rounded-xl text-xs text-brand-600/70">
                     No manual mappings. Map a field by clicking "Manual Map" in the page widget.
                   </div>
                 )}
@@ -962,7 +971,7 @@ export default function OptionsApp() {
                 {templates
                   .filter(t => t.domain.toLowerCase().includes(searchQuery.toLowerCase()))
                   .map(t => (
-                    <div key={t.id} className="bg-white/90 border border-brand-800/15 rounded-xl p-4 flex justify-between items-center">
+                    <div key={t.id} className="ui-panel rounded-xl p-4 flex justify-between items-center">
                       <div>
                         <p className="text-xs font-bold text-brand-800">{t.domain}</p>
                         <p className="text-[10px] text-brand-700/65 mt-0.5">Created {new Date(t.createdAt).toLocaleDateString()}</p>
@@ -976,7 +985,7 @@ export default function OptionsApp() {
                     </div>
                   ))}
                 {templates.length === 0 && (
-                  <div className="col-span-2 text-center py-8 bg-white/75 border border-brand-800/15 rounded-xl text-xs text-brand-600/70">
+                  <div className="col-span-2 text-center py-8 ui-panel-soft rounded-xl text-xs text-brand-600/70">
                     No custom templates saved. Save templates via the page widget.
                   </div>
                 )}
@@ -1005,7 +1014,7 @@ export default function OptionsApp() {
 
             {/* Metrics cards */}
             <div className="grid grid-cols-3 gap-4">
-              <div className="bg-white/90 border border-brand-800/15 rounded-2xl p-5">
+              <div className="ui-panel rounded-2xl p-5">
                 <p className="text-[10px] text-brand-700/65 font-bold uppercase tracking-wider">Total Form Fills</p>
                 <p className="text-2xl font-bold text-brand-800 mt-1">{history.length}</p>
                 <div className="text-[10px] text-brand-400 flex items-center gap-1 mt-1 font-semibold">
@@ -1014,7 +1023,7 @@ export default function OptionsApp() {
                 </div>
               </div>
 
-              <div className="bg-white/90 border border-brand-800/15 rounded-2xl p-5">
+              <div className="ui-panel rounded-2xl p-5">
                 <p className="text-[10px] text-brand-700/65 font-bold uppercase tracking-wider">Total Fields Populated</p>
                 <p className="text-2xl font-bold text-brand-800 mt-1">
                   {history.reduce((sum, entry) => sum + entry.fieldsCount, 0)}
@@ -1024,7 +1033,7 @@ export default function OptionsApp() {
                 </p>
               </div>
 
-              <div className="bg-white/90 border border-brand-800/15 rounded-2xl p-5">
+              <div className="ui-panel rounded-2xl p-5">
                 <p className="text-[10px] text-brand-700/65 font-bold uppercase tracking-wider font-sans">Est. Time Saved</p>
                 <p className="text-2xl font-bold text-brand-800 mt-1">
                   {((history.reduce((sum, entry) => sum + entry.fieldsCount, 0) * 8) / 60).toFixed(1)} mins
@@ -1037,7 +1046,7 @@ export default function OptionsApp() {
             </div>
 
             {/* History Table */}
-            <div className="bg-white/75 border border-brand-800/15 rounded-2xl overflow-hidden mt-4">
+            <div className="ui-panel-soft rounded-2xl overflow-hidden mt-4">
               <div className="px-4 py-3 bg-cream-200/50 border-b border-brand-800/15 text-xs font-semibold text-brand-700/75 uppercase tracking-wider">
                 Fill Logs
               </div>
@@ -1083,7 +1092,7 @@ export default function OptionsApp() {
             </div>
 
             {/* AI Model config */}
-            <div className="bg-white/85 border border-brand-800/15 p-5 rounded-2xl flex flex-col gap-4">
+            <div className="ui-panel p-5 rounded-2xl flex flex-col gap-4">
               <div className="flex items-center gap-2 border-b border-brand-800/15/50 pb-2">
                 <Settings2 className="w-4.5 h-4.5 text-brand-400" />
                 <h3 className="text-xs font-bold uppercase tracking-wider text-brand-800">AI Matcher Provider</h3>
@@ -1189,7 +1198,7 @@ export default function OptionsApp() {
             </div>
 
             {/* General Toggles */}
-            <div className="bg-white/85 border border-brand-800/15 p-5 rounded-2xl flex flex-col gap-4">
+            <div className="ui-panel p-5 rounded-2xl flex flex-col gap-4">
               <div className="flex items-center gap-2 border-b border-brand-800/15/50 pb-2">
                 <Sliders className="w-4.5 h-4.5 text-brand-400" />
                 <h3 className="text-xs font-bold uppercase tracking-wider text-brand-700">General Preferences</h3>
@@ -1200,12 +1209,16 @@ export default function OptionsApp() {
                   <label className="block text-[10px] font-semibold text-brand-700/70 uppercase mb-1">Theme</label>
                   <select
                     value={appSettings.theme}
-                    onChange={(e) => setAppSettingsState({ ...appSettings, theme: e.target.value as any })}
-                    className="w-full bg-white border border-brand-800/20 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-brand-800"
+                    onChange={(e) => {
+                      const theme = e.target.value as AppSettingsType['theme'];
+                      setAppSettingsState({ ...appSettings, theme });
+                      applyThemeSetting(theme);
+                    }}
+                    className="w-full ui-input rounded-lg p-2 text-xs"
                   >
-                    <option value="dark">Dark Theme (Neon Mode)</option>
-                    <option value="light">Light Theme</option>
-                    <option value="system">Follow System Settings</option>
+                    <option value="light">Light theme</option>
+                    <option value="dark">Dark theme</option>
+                    <option value="system">Match system</option>
                   </select>
                 </div>
                 <div>
@@ -1221,7 +1234,7 @@ export default function OptionsApp() {
             </div>
 
             {/* Export & Import Backup */}
-            <div className="bg-white/85 border border-brand-800/15 p-5 rounded-2xl flex flex-col gap-4">
+            <div className="ui-panel p-5 rounded-2xl flex flex-col gap-4">
               <div className="flex items-center gap-2 border-b border-brand-800/15/50 pb-2">
                 <HardDriveDownload className="w-4.5 h-4.5 text-brand-400" />
                 <h3 className="text-xs font-bold uppercase tracking-wider text-brand-700">Data Export / Backup</h3>
@@ -1283,7 +1296,7 @@ export default function OptionsApp() {
               </div>
             </div>
 
-            <div className="bg-white/75 border border-brand-800/15 rounded-2xl overflow-hidden mt-2">
+            <div className="ui-panel-soft rounded-2xl overflow-hidden mt-2">
               <div className="px-4 py-3 bg-cream-200/50 border-b border-brand-800/15 text-xs font-semibold text-brand-700/75 uppercase tracking-wider">
                 Saved Accounts
               </div>

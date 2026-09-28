@@ -319,7 +319,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     answerOpenQuestions: true,
     useJobDescriptionContext: true,
   },
-  theme: 'dark',
+  theme: 'light',
   keyboardShortcut: 'Alt+Shift+F',
   globalEnabled: true,
 };
