@@ -434,16 +434,16 @@ export default function OptionsApp() {
   return (
     <div className="flex h-screen ui-page overflow-hidden font-sans">
       {/* Sidebar Panel */}
-      <aside className="w-64 ui-sidebar border-r flex flex-col justify-between shrink-0 shadow-sm">
+      <aside className="w-64 ui-sidebar border-r ui-border-subtle flex flex-col justify-between shrink-0 shadow-sm dark:shadow-none">
         <div>
           {/* Logo Branding */}
-          <div className="p-6 flex items-center gap-2.5 border-b border-brand-800/15">
-            <div className="h-9 w-9 shrink-0 rounded-xl overflow-hidden flex items-center justify-center bg-cream border border-brand-800/15 dark:bg-brand-800 dark:border-brand-600/30">
+          <div className="p-6 flex items-center gap-2.5 border-b ui-border-subtle">
+            <div className="h-9 w-9 shrink-0 rounded-xl overflow-hidden flex items-center justify-center bg-cream border border-brand-800/15 dark:bg-brand-600/35 dark:border-brand-400/35">
               <ExtensionLogo variant="mark" className="h-[85%] w-[85%]" />
             </div>
             <div>
-              <h1 className="font-bold text-sm text-brand-800 tracking-wide">OneClick AI</h1>
-              <p className="text-[10px] text-brand-700/65 uppercase tracking-widest font-semibold mt-0.5">Autofill Engine</p>
+              <h1 className="font-bold text-sm text-brand-800 dark:text-cream-100 tracking-wide">OneClick AI</h1>
+              <p className="text-[10px] ui-caption uppercase tracking-widest font-semibold mt-0.5">Autofill Engine</p>
             </div>
           </div>
 
@@ -524,17 +524,17 @@ export default function OptionsApp() {
         </div>
 
         {/* Database Stats */}
-        <div className="p-4 border-t border-brand-800/15 flex flex-col gap-2">
-          <div className="flex items-center gap-2 text-brand-700/65 text-[10px] uppercase font-bold tracking-wider">
+        <div className="p-4 border-t ui-border-subtle flex flex-col gap-2">
+          <div className="flex items-center gap-2 ui-caption uppercase font-bold tracking-wider">
             <Database className="w-3.5 h-3.5" />
             <span>Storage Status</span>
           </div>
-          <div className="flex justify-between items-center bg-white p-2.5 rounded-lg border border-brand-800/15">
-            <div className="text-[10px] text-brand-700/75">
+          <div className="flex justify-between items-center ui-inset-panel">
+            <div className="text-[10px] ui-muted">
               <p className="font-semibold">{profiles.length} Profiles</p>
-              <p className="mt-0.5 text-brand-700/65">{resumes.length} Resumes</p>
+              <p className="mt-0.5">{resumes.length} Resumes</p>
             </div>
-            <div className="text-[10px] text-emerald-400 font-medium bg-emerald-950/60 px-2 py-1 rounded border border-emerald-800/40">
+            <div className="text-[10px] text-emerald-600 dark:text-emerald-300 font-medium bg-emerald-50 dark:bg-emerald-950/50 px-2 py-1 rounded border border-emerald-200/80 dark:border-emerald-800/45">
               Encrypted
             </div>
           </div>
@@ -556,10 +556,10 @@ export default function OptionsApp() {
         {activeTab === 'profiles' && (
           <div className="flex-1 flex overflow-hidden">
             {/* Profiles List Sidebar */}
-            <div className="w-64 border-r border-brand-800/15 bg-cream-200/50 p-4 flex flex-col gap-3 justify-between">
+            <div className="w-64 border-r ui-profile-list-pane p-4 flex flex-col gap-3 justify-between">
               <div className="flex flex-col gap-2.5">
                 <div className="flex justify-between items-center">
-                  <h2 className="text-xs font-bold uppercase tracking-wider text-brand-700/75">Your Profiles</h2>
+                  <h2 className="ui-section-label">Your Profiles</h2>
                   <button 
                     onClick={handleCreateProfile}
                     className="p-1 rounded bg-brand-600 hover:bg-brand-500 transition text-white cursor-pointer"
@@ -576,29 +576,29 @@ export default function OptionsApp() {
                       onClick={() => handleProfileSelect(p.id)}
                       className={`p-3 rounded-xl border transition cursor-pointer flex justify-between items-center ${
                         selectedProfileId === p.id 
-                          ? 'bg-white border-brand-500/50 shadow-md shadow-brand-500/5' 
-                          : 'bg-white/60 border-brand-800/15 hover:bg-white/85'
+                          ? 'bg-white border-brand-500/50 shadow-md shadow-brand-500/5 dark:bg-brand-800/55 dark:border-brand-400/40 dark:shadow-brand-950/40' 
+                          : 'bg-white/60 border-brand-800/15 hover:bg-white/85 dark:bg-brand-950/35 dark:border-brand-600/22 dark:hover:bg-brand-900/50'
                       }`}
                     >
                       <div className="min-w-0">
-                        <p className="text-xs font-semibold text-brand-800 truncate">{p.name}</p>
-                        <p className="text-[10px] text-brand-700/65 truncate mt-0.5">{p.personal.email || 'No email'}</p>
+                        <p className="text-xs font-semibold text-brand-800 dark:text-cream-100 truncate">{p.name}</p>
+                        <p className="text-[10px] ui-muted truncate mt-0.5">{p.personal.email || 'No email'}</p>
                       </div>
                       
                       <div className="flex items-center gap-1 shrink-0 ml-2">
                         {activeProfileIdState === p.id ? (
-                          <span className="text-[9px] font-semibold text-brand-700 bg-brand-100 px-1.5 py-0.5 rounded border border-brand-800/40">Active</span>
+                          <span className="ui-badge">Active</span>
                         ) : (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleSetActiveProfile(p.id); }}
-                            className="text-[9px] font-semibold text-brand-700/65 hover:text-brand-800 hover:underline cursor-pointer"
+                            className="text-[9px] font-semibold ui-muted hover:text-brand-800 dark:hover:text-cream-100 hover:underline cursor-pointer"
                           >
                             Set Active
                           </button>
                         )}
                         <button 
                           onClick={(e) => { e.stopPropagation(); handleDeleteProfile(p.id); }}
-                          className="p-1 rounded text-brand-700/65 hover:text-rose-400 transition cursor-pointer ml-1"
+                          className="p-1 rounded ui-muted hover:text-rose-400 dark:hover:text-rose-300 transition cursor-pointer ml-1"
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>
@@ -608,7 +608,7 @@ export default function OptionsApp() {
                 </div>
               </div>
 
-              <div className="text-[10px] text-brand-700/65 text-center leading-relaxed">
+              <div className="text-[10px] ui-muted text-center leading-relaxed">
                 Choose a profile or create multiple templates to map data per role/purpose.
               </div>
             </div>
@@ -621,7 +621,7 @@ export default function OptionsApp() {
                   value={profileName}
                   onChange={(e) => setProfileName(e.target.value)}
                   placeholder="Profile name"
-                  className="w-full sm:max-w-md bg-transparent border-b-2 border-brand-800/20 hover:border-brand-500/50 focus:border-brand-500 text-xl font-bold focus:outline-none pb-2 text-brand-900 placeholder:text-brand-600/70"
+                  className="w-full sm:max-w-md bg-transparent border-b-2 border-brand-800/20 hover:border-brand-500/50 focus:border-brand-500 text-xl font-bold focus:outline-none pb-2 text-brand-900 dark:text-cream-100 placeholder:text-brand-600/70 dark:placeholder:text-cream-100/45 dark:border-brand-600/40"
                 />
                 <button
                   onClick={handleSaveProfile}
@@ -805,16 +805,16 @@ export default function OptionsApp() {
         {activeTab === 'resumes' && (
           <div className="p-8 overflow-y-auto max-w-4xl mx-auto w-full flex flex-col gap-6">
             <div className="pb-4 border-b border-brand-800/15">
-              <h2 className="text-lg font-bold text-brand-800">Resume Manager</h2>
-              <p className="text-xs text-brand-700/65 mt-1">Upload and store PDF/DOCX resumes. The extension automatically detects file uploads on pages and drops the file reference.</p>
+              <h2 className="ui-page-title">Resume Manager</h2>
+              <p className="ui-subtitle">Upload and store PDF/DOCX resumes. The extension automatically detects file uploads on pages and drops the file reference.</p>
             </div>
 
             {/* Upload Area */}
-            <div className="border border-dashed border-brand-800/20 bg-white/75 rounded-2xl p-8 text-center flex flex-col items-center justify-center gap-3 relative hover:border-brand-500/50 hover:bg-white/85 transition cursor-pointer">
+            <div className="ui-dropzone p-8 text-center flex flex-col items-center justify-center gap-3 relative">
               <HardDriveDownload className="w-10 h-10 text-brand-400" />
               <div>
-                <p className="text-xs font-semibold text-brand-800">Drag & Drop Resume PDF/DOCX</p>
-                <p className="text-[10px] text-brand-700/65 mt-1">Maximum 5MB. Files are stored 100% locally and encrypted inside IndexedDB.</p>
+                <p className="text-xs font-semibold text-brand-800 dark:text-cream-100">Drag & Drop Resume PDF/DOCX</p>
+                <p className="ui-caption mt-1">Maximum 5MB. Files are stored 100% locally and encrypted inside IndexedDB.</p>
               </div>
               <input
                 type="file"
@@ -826,29 +826,29 @@ export default function OptionsApp() {
 
             {/* List of Resumes */}
             <div className="flex flex-col gap-2.5">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-brand-700/75 mb-1">Your Resumes ({resumes.length})</h3>
+              <h3 className="ui-section-label mb-1">Your Resumes ({resumes.length})</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {resumes.map(r => (
                   <div key={r.id} className="ui-panel rounded-xl p-4 flex justify-between items-center">
                     <div className="flex items-center gap-3">
-                      <div className="h-9 w-9 rounded-lg bg-brand-100 border border-brand-300/50 flex items-center justify-center text-[10px] font-bold text-brand-700 uppercase">
+                      <div className="h-9 w-9 rounded-lg bg-brand-100 dark:bg-brand-700/45 border border-brand-300/50 dark:border-brand-500/40 flex items-center justify-center text-[10px] font-bold text-brand-700 dark:text-cream-100 uppercase">
                         {r.fileType}
                       </div>
                       <div>
-                        <p className="text-xs font-semibold text-brand-800 truncate max-w-[200px]">{r.name}</p>
-                        <p className="text-[10px] text-brand-700/65 mt-0.5">Uploaded {new Date(r.uploadedAt).toLocaleDateString()}</p>
+                        <p className="text-xs font-semibold ui-heading truncate max-w-[200px]">{r.name}</p>
+                        <p className="ui-caption mt-0.5">Uploaded {new Date(r.uploadedAt).toLocaleDateString()}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-1 shrink-0 ml-2">
                       {r.isDefault ? (
-                        <span className="text-[9px] font-semibold text-brand-700 bg-brand-100 px-1.5 py-0.5 rounded border border-brand-800/40 flex items-center gap-1">
+                        <span className="ui-badge flex items-center gap-1">
                           <Star className="w-3 h-3 fill-brand-400" />
                           Default
                         </span>
                       ) : (
                         <button
                           onClick={() => handleSetDefaultResume(r.id)}
-                          className="text-[9px] font-semibold text-brand-700/65 hover:text-brand-700 hover:underline cursor-pointer flex items-center gap-1"
+                          className="text-[9px] font-semibold ui-muted hover:text-brand-700 dark:hover:text-cream-100 hover:underline cursor-pointer flex items-center gap-1"
                         >
                           <Star className="w-3 h-3" />
                           Set Default
@@ -856,7 +856,7 @@ export default function OptionsApp() {
                       )}
                       <button 
                         onClick={() => handleDeleteResume(r.id)}
-                        className="p-1.5 rounded-lg bg-white hover:bg-white border border-brand-800/15 text-brand-700/75 hover:text-rose-450 transition cursor-pointer ml-1"
+                        className="ui-icon-btn hover:text-rose-500 dark:hover:text-rose-300 ml-1"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -864,7 +864,7 @@ export default function OptionsApp() {
                   </div>
                 ))}
                 {resumes.length === 0 && (
-                  <div className="col-span-2 text-center py-8 ui-panel-soft rounded-xl text-xs text-brand-600/70">
+                  <div className="col-span-2 text-center py-8 ui-panel-soft rounded-xl ui-empty">
                     No resumes uploaded. Add a PDF or DOCX file to enable resume autofill.
                   </div>
                 )}
@@ -878,24 +878,24 @@ export default function OptionsApp() {
           <div className="p-8 overflow-y-auto max-w-5xl mx-auto w-full flex flex-col gap-6">
             <div className="pb-4 border-b border-brand-800/15 flex justify-between items-center">
               <div>
-                <h2 className="text-lg font-bold text-brand-800">Templates & Mappings</h2>
-                <p className="text-xs text-brand-700/65 mt-1">Manage website-specific field selectors, mapping overrides, and manual element links.</p>
+                <h2 className="ui-page-title">Templates & Mappings</h2>
+                <p className="ui-subtitle">Manage website-specific field selectors, mapping overrides, and manual element links.</p>
               </div>
               <div className="relative">
-                <Search className="w-4 h-4 text-brand-600/50 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Search className="w-4 h-4 text-brand-600/50 dark:text-cream-100/50 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   placeholder="Search domain..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="bg-white border border-brand-800/15 focus:border-brand-500 rounded-xl pl-9 pr-4 py-1.5 text-xs text-brand-800 focus:outline-none w-60 placeholder:text-brand-600/50"
+                  className="ui-input rounded-xl pl-9 pr-4 py-1.5 text-xs focus:outline-none w-60"
                 />
               </div>
             </div>
 
             {/* Manual Mappings Grid */}
             <div className="flex flex-col gap-3">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-brand-700/75 mb-1">Manual Field Links ({manualMappings.length})</h3>
+              <h3 className="ui-section-label mb-1">Manual Field Links ({manualMappings.length})</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {manualMappings
                   .filter(m => m.domain.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -903,10 +903,10 @@ export default function OptionsApp() {
                     <div key={m.id} className="ui-panel rounded-xl p-4 flex justify-between items-start gap-4">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-brand-800">{m.domain}</span>
-                          <span className="text-[9px] bg-white px-1.5 py-0.5 rounded text-brand-700 font-semibold border border-brand-300/40">Custom Map</span>
+                          <span className="text-xs font-bold ui-heading">{m.domain}</span>
+                          <span className="text-[9px] bg-cream-50 dark:bg-brand-950/70 px-1.5 py-0.5 rounded text-brand-700 dark:text-cream-200 font-semibold border border-brand-300/40 dark:border-brand-600/35">Custom Map</span>
                         </div>
-                        <p className="text-[10px] text-brand-700/65 mt-1.5 font-mono truncate bg-white p-1.5 rounded border border-brand-800/15">
+                        <p className="text-[10px] ui-muted mt-1.5 font-mono truncate bg-cream-50/80 dark:bg-brand-950/55 p-1.5 rounded border ui-border-subtle">
                           Selector: {m.selector}
                         </p>
                         <p className="text-[10px] text-brand-400 mt-1 font-semibold">
@@ -915,14 +915,14 @@ export default function OptionsApp() {
                       </div>
                       <button
                         onClick={() => handleDeleteManualMap(m.id)}
-                        className="p-1.5 rounded-lg bg-white hover:bg-white border border-brand-800/15 text-brand-700/75 hover:text-rose-400 transition cursor-pointer shrink-0"
+                        className="ui-icon-btn hover:text-rose-500 dark:hover:text-rose-300 shrink-0"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   ))}
                 {manualMappings.length === 0 && (
-                  <div className="col-span-2 text-center py-8 ui-panel-soft rounded-xl text-xs text-brand-600/70">
+                  <div className="col-span-2 text-center py-8 ui-panel-soft rounded-xl ui-empty">
                     No manual mappings. Map a field by clicking "Manual Map" in the page widget.
                   </div>
                 )}
@@ -931,26 +931,26 @@ export default function OptionsApp() {
 
             {/* Domain Templates */}
             <div className="flex flex-col gap-3">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-brand-700/75 mb-1">Domain Templates ({templates.length})</h3>
+              <h3 className="ui-section-label mb-1">Domain Templates ({templates.length})</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {templates
                   .filter(t => t.domain.toLowerCase().includes(searchQuery.toLowerCase()))
                   .map(t => (
                     <div key={t.id} className="ui-panel rounded-xl p-4 flex justify-between items-center">
                       <div>
-                        <p className="text-xs font-bold text-brand-800">{t.domain}</p>
-                        <p className="text-[10px] text-brand-700/65 mt-0.5">Created {new Date(t.createdAt).toLocaleDateString()}</p>
+                        <p className="text-xs font-bold ui-heading">{t.domain}</p>
+                        <p className="ui-caption mt-0.5">Created {new Date(t.createdAt).toLocaleDateString()}</p>
                       </div>
                       <button
                         onClick={() => handleDeleteTemplate(t.id)}
-                        className="p-1.5 rounded-lg bg-white hover:bg-white border border-brand-800/15 text-brand-700/75 hover:text-rose-400 transition cursor-pointer"
+                        className="ui-icon-btn hover:text-rose-500 dark:hover:text-rose-300"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   ))}
                 {templates.length === 0 && (
-                  <div className="col-span-2 text-center py-8 ui-panel-soft rounded-xl text-xs text-brand-600/70">
+                  <div className="col-span-2 text-center py-8 ui-panel-soft rounded-xl ui-empty">
                     No custom templates saved. Save templates via the page widget.
                   </div>
                 )}
@@ -964,13 +964,13 @@ export default function OptionsApp() {
           <div className="p-8 overflow-y-auto max-w-5xl mx-auto w-full flex flex-col gap-6">
             <div className="pb-4 border-b border-brand-800/15 flex justify-between items-center">
               <div>
-                <h2 className="text-lg font-bold text-brand-800">Autofill History</h2>
-                <p className="text-xs text-brand-700/65 mt-1">Review form fill history, accuracy metrics, and local optimization diagnostics.</p>
+                <h2 className="ui-page-title">Autofill History</h2>
+                <p className="ui-subtitle">Review form fill history, accuracy metrics, and local optimization diagnostics.</p>
               </div>
               <button
                 onClick={handleClearHistory}
                 disabled={history.length === 0}
-                className="bg-white border border-brand-800/20 hover:bg-cream-200 disabled:opacity-50 text-brand-700 hover:text-white py-1.5 px-3 rounded-lg text-xs font-medium transition cursor-pointer flex items-center gap-1.5"
+                className="ui-input hover:bg-brand-600/15 dark:hover:bg-brand-500/20 disabled:opacity-50 py-1.5 px-3 rounded-lg text-xs font-medium transition cursor-pointer flex items-center gap-1.5"
               >
                 <Trash2 className="w-4 h-4 text-rose-500" />
                 Clear Logs
@@ -980,30 +980,30 @@ export default function OptionsApp() {
             {/* Metrics cards */}
             <div className="grid grid-cols-3 gap-4">
               <div className="ui-panel rounded-2xl p-5">
-                <p className="text-[10px] text-brand-700/65 font-bold uppercase tracking-wider">Total Form Fills</p>
-                <p className="text-2xl font-bold text-brand-800 mt-1">{history.length}</p>
-                <div className="text-[10px] text-brand-400 flex items-center gap-1 mt-1 font-semibold">
+                <p className="ui-section-label text-[10px]">Total Form Fills</p>
+                <p className="text-2xl font-bold ui-heading mt-1">{history.length}</p>
+                <div className="text-[10px] text-brand-500 dark:text-cream-100/75 flex items-center gap-1 mt-1 font-semibold">
                   <CloudLightning className="w-3.5 h-3.5" />
                   <span>One-click autofills</span>
                 </div>
               </div>
 
               <div className="ui-panel rounded-2xl p-5">
-                <p className="text-[10px] text-brand-700/65 font-bold uppercase tracking-wider">Total Fields Populated</p>
-                <p className="text-2xl font-bold text-brand-800 mt-1">
+                <p className="ui-section-label text-[10px]">Total Fields Populated</p>
+                <p className="text-2xl font-bold ui-heading mt-1">
                   {history.reduce((sum, entry) => sum + entry.fieldsCount, 0)}
                 </p>
-                <p className="text-[10px] text-brand-700/65 mt-1.5">
+                <p className="ui-caption mt-1.5">
                   Avg fields/page: {history.length > 0 ? (history.reduce((sum, entry) => sum + entry.fieldsCount, 0) / history.length).toFixed(1) : 0}
                 </p>
               </div>
 
               <div className="ui-panel rounded-2xl p-5">
-                <p className="text-[10px] text-brand-700/65 font-bold uppercase tracking-wider font-sans">Est. Time Saved</p>
-                <p className="text-2xl font-bold text-brand-800 mt-1">
+                <p className="ui-section-label text-[10px] font-sans">Est. Time Saved</p>
+                <p className="text-2xl font-bold ui-heading mt-1">
                   {((history.reduce((sum, entry) => sum + entry.fieldsCount, 0) * 8) / 60).toFixed(1)} mins
                 </p>
-                <div className="text-[10px] text-brand-700 flex items-center gap-1 mt-1 font-semibold">
+                <div className="text-[10px] ui-muted flex items-center gap-1 mt-1 font-semibold">
                   <ArrowUpRight className="w-3.5 h-3.5" />
                   <span>Calculated at 8s/field saved</span>
                 </div>
@@ -1012,13 +1012,13 @@ export default function OptionsApp() {
 
             {/* History Table */}
             <div className="ui-panel-soft rounded-2xl overflow-hidden mt-4">
-              <div className="px-4 py-3 bg-cream-200/50 border-b border-brand-800/15 text-xs font-semibold text-brand-700/75 uppercase tracking-wider">
+              <div className="ui-table-bar">
                 Fill Logs
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-brand-800/15 text-[10px] text-brand-700/65 uppercase tracking-wider">
+                    <tr className="border-b ui-border-subtle ui-table-head">
                       <th className="p-4">Website Domain</th>
                       <th className="p-4">Profile Applied</th>
                       <th className="p-4">Fields Filled</th>
@@ -1027,16 +1027,16 @@ export default function OptionsApp() {
                   </thead>
                   <tbody className="divide-y divide-brand-800/15 text-xs">
                     {history.map(entry => (
-                      <tr key={entry.id} className="hover:bg-white/75 text-brand-800">
+                      <tr key={entry.id} className="ui-table-row">
                         <td className="p-4 font-semibold">{entry.domain}</td>
                         <td className="p-4">{entry.profileName}</td>
                         <td className="p-4 font-mono">{entry.fieldsCount} fields</td>
-                        <td className="p-4 text-brand-700/60">{new Date(entry.timestamp).toLocaleString()}</td>
+                        <td className="p-4 ui-muted">{new Date(entry.timestamp).toLocaleString()}</td>
                       </tr>
                     ))}
                     {history.length === 0 && (
                       <tr>
-                        <td colSpan={4} className="text-center py-10 text-brand-600/50 text-xs">
+                        <td colSpan={4} className="text-center py-10 ui-empty">
                           No history records. Autofill forms on external websites to populate analytics.
                         </td>
                       </tr>
@@ -1051,16 +1051,16 @@ export default function OptionsApp() {
         {/* Tab - Settings */}
         {activeTab === 'settings' && appSettings && (
           <div className="p-8 overflow-y-auto max-w-4xl mx-auto w-full flex flex-col gap-6">
-            <div className="pb-4 border-b border-brand-800/15">
-              <h2 className="text-lg font-bold text-brand-800">Configuration & Security</h2>
-              <p className="text-xs text-brand-700/65 mt-1">Configure AI models, manage encryption backups, and setup triggers.</p>
+            <div className="pb-4 border-b ui-border-subtle">
+              <h2 className="ui-page-title">Configuration & Security</h2>
+              <p className="text-xs ui-muted mt-1">Configure AI models, manage encryption backups, and setup triggers.</p>
             </div>
 
             {/* AI Model config */}
             <div className="ui-panel p-5 rounded-2xl flex flex-col gap-4">
-              <div className="flex items-center gap-2 border-b border-brand-800/15/50 pb-2">
-                <Settings2 className="w-4.5 h-4.5 text-brand-400" />
-                <h3 className="text-xs font-bold uppercase tracking-wider text-brand-800">AI Matcher Provider</h3>
+              <div className="flex items-center gap-2 border-b ui-border-subtle pb-2">
+                <Settings2 className="w-4.5 h-4.5 text-brand-500 dark:text-brand-300" />
+                <h3 className="ui-section-title">AI Matcher Provider</h3>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -1071,62 +1071,50 @@ export default function OptionsApp() {
                       ai: { ...appSettings.ai, provider: 'heuristic', answerOpenQuestions: false },
                     })
                   }
-                  className={`p-4 rounded-xl border cursor-pointer transition flex flex-col gap-1.5 ${
-                    appSettings.ai.provider === 'heuristic' 
-                      ? 'bg-brand-600/10 border-brand-500/40 text-brand-700' 
-                      : 'bg-white/75 border-brand-800/15 text-brand-700/70 hover:bg-white/90'
-                  }`}
+                  className={`ui-choice-card ${appSettings.ai.provider === 'heuristic' ? 'ui-choice-card-active' : ''}`}
                 >
-                  <p className="text-xs font-semibold text-brand-800">Offline only</p>
-                  <p className="text-[10px] text-brand-700/60 leading-relaxed">Local keyword and custom-field matching only. No Gemini API calls.</p>
+                  <p className="ui-choice-card-title">Offline only</p>
+                  <p className="ui-choice-card-desc">Local keyword and custom-field matching only. No Gemini API calls.</p>
                 </div>
 
                 <div 
                   onClick={() => setAppSettingsState({ ...appSettings, ai: { ...appSettings.ai, provider: 'hybrid' } })}
-                  className={`p-4 rounded-xl border cursor-pointer transition flex flex-col gap-1.5 ${
-                    appSettings.ai.provider === 'hybrid' 
-                      ? 'bg-brand-600/10 border-brand-500/40 text-brand-700' 
-                      : 'bg-white/75 border-brand-800/15 text-brand-700/70 hover:bg-white/90'
-                  }`}
+                  className={`ui-choice-card ${appSettings.ai.provider === 'hybrid' ? 'ui-choice-card-active' : ''}`}
                 >
-                  <p className="text-xs font-semibold text-brand-800">Hybrid (recommended)</p>
-                  <p className="text-[10px] text-brand-700/60 leading-relaxed">Offline match first, then Gemini for unmatched fields and essay-style questions using your profile + job description.</p>
+                  <p className="ui-choice-card-title">Hybrid (recommended)</p>
+                  <p className="ui-choice-card-desc">Offline match first, then Gemini for unmatched fields and essay-style questions using your profile + job description.</p>
                 </div>
 
                 <div 
                   onClick={() => setAppSettingsState({ ...appSettings, ai: { ...appSettings.ai, provider: 'gemini' } })}
-                  className={`p-4 rounded-xl border cursor-pointer transition flex flex-col gap-1.5 ${
-                    appSettings.ai.provider === 'gemini' 
-                      ? 'bg-brand-600/10 border-brand-500/40 text-brand-700' 
-                      : 'bg-white/75 border-brand-800/15 text-brand-700/70 hover:bg-white/90'
-                  }`}
+                  className={`ui-choice-card ${appSettings.ai.provider === 'gemini' ? 'ui-choice-card-active' : ''}`}
                 >
-                  <p className="text-xs font-semibold text-brand-800">Gemini-first</p>
-                  <p className="text-[10px] text-brand-700/60 leading-relaxed">Maximum AI coverage: Gemini maps and generates answers for anything heuristics miss.</p>
+                  <p className="ui-choice-card-title">Gemini-first</p>
+                  <p className="ui-choice-card-desc">Maximum AI coverage: Gemini maps and generates answers for anything heuristics miss.</p>
                 </div>
               </div>
 
               {(appSettings.ai.provider !== 'heuristic' || appSettings.ai.answerOpenQuestions !== false) && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 animate-fade-in">
                   <div className="md:col-span-2">
-                    <label className="block text-[10px] font-semibold text-brand-700/70 uppercase mb-1">Google Gemini API Key</label>
+                    <label className="block text-[10px] font-semibold ui-label uppercase mb-1">Google Gemini API Key</label>
                     <input
                       type="password"
                       placeholder="AIzaSy..."
                       value={appSettings.ai.geminiApiKey}
                       onChange={(e) => setAppSettingsState({ ...appSettings, ai: { ...appSettings.ai, geminiApiKey: e.target.value } })}
-                      className="w-full bg-white border border-brand-800/20 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-brand-800"
+                      className="w-full ui-input rounded-lg p-2 text-xs"
                     />
-                    <p className="text-[10px] text-brand-700/65 mt-1">
+                    <p className="text-[10px] ui-muted mt-1">
                       Your key only — stored locally in this browser. Get a free key from Google AI Studio. Not read from .env or build files.
                     </p>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-semibold text-brand-700/70 uppercase mb-1">Model</label>
+                    <label className="block text-[10px] font-semibold ui-label uppercase mb-1">Model</label>
                     <select
                       value={appSettings.ai.geminiModel}
                       onChange={(e) => setAppSettingsState({ ...appSettings, ai: { ...appSettings.ai, geminiModel: e.target.value } })}
-                      className="w-full bg-white border border-brand-800/20 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-brand-800"
+                      className="w-full ui-input rounded-lg p-2 text-xs"
                     >
                       <option value="gemini-2.0-flash">gemini-2.0-flash</option>
                       <option value="gemini-1.5-flash">gemini-1.5-flash</option>
@@ -1134,7 +1122,7 @@ export default function OptionsApp() {
                     </select>
                   </div>
                   <div className="flex flex-col gap-3 justify-center">
-                    <label className="flex items-center gap-2 text-xs text-brand-800 cursor-pointer">
+                    <label className="flex items-center gap-2 text-xs text-brand-800 dark:text-cream-100 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={appSettings.ai.answerOpenQuestions !== false}
@@ -1144,11 +1132,11 @@ export default function OptionsApp() {
                             ai: { ...appSettings.ai, answerOpenQuestions: e.target.checked },
                           })
                         }
-                        className="rounded border-brand-700/30"
+                        className="rounded border-brand-700/30 dark:border-brand-400/40 dark:bg-brand-950"
                       />
                       AI answers for open-ended questions
                     </label>
-                    <label className="flex items-center gap-2 text-xs text-brand-800 cursor-pointer">
+                    <label className="flex items-center gap-2 text-xs text-brand-800 dark:text-cream-100 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={appSettings.ai.useJobDescriptionContext !== false}
@@ -1158,7 +1146,7 @@ export default function OptionsApp() {
                             ai: { ...appSettings.ai, useJobDescriptionContext: e.target.checked },
                           })
                         }
-                        className="rounded border-brand-700/30"
+                        className="rounded border-brand-700/30 dark:border-brand-400/40 dark:bg-brand-950"
                       />
                       Use job description from the page
                     </label>
@@ -1169,13 +1157,13 @@ export default function OptionsApp() {
 
             {/* General Toggles */}
             <div className="ui-panel p-5 rounded-2xl flex flex-col gap-4">
-              <div className="flex items-center gap-2 border-b border-brand-800/15/50 pb-2">
-                <Sliders className="w-4.5 h-4.5 text-brand-400" />
-                <h3 className="text-xs font-bold uppercase tracking-wider text-brand-700">General Preferences</h3>
+              <div className="flex items-center gap-2 border-b ui-border-subtle pb-2">
+                <Sliders className="w-4.5 h-4.5 text-brand-500 dark:text-brand-300" />
+                <h3 className="ui-section-title">General Preferences</h3>
               </div>
 
               <div>
-                <label className="block text-[10px] font-semibold text-brand-700/70 uppercase mb-1">Theme</label>
+                <label className="block text-[10px] font-semibold ui-label uppercase mb-1">Theme</label>
                 <select
                   value={appSettings.theme}
                   onChange={(e) => {
@@ -1193,10 +1181,10 @@ export default function OptionsApp() {
             </div>
 
             {/* Submit Action */}
-            <div className="flex justify-end gap-2 border-t border-brand-800/15 pt-4">
+            <div className="flex justify-end gap-2 border-t ui-border-subtle pt-4">
               <button
                 onClick={handleSaveSettings}
-                className="bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold py-2.5 px-6 rounded-xl shadow-lg shadow-brand-500/25 transition cursor-pointer"
+                className="bg-brand-600 hover:bg-brand-500 text-cream-100 text-xs font-bold py-2.5 px-6 rounded-xl shadow-lg shadow-brand-600/20 dark:shadow-brand-950/60 transition cursor-pointer"
               >
                 Save Preferences
               </button>
@@ -1209,29 +1197,29 @@ export default function OptionsApp() {
           <div className="p-8 overflow-y-auto max-w-5xl mx-auto w-full flex flex-col gap-6 animate-fade-in">
             <div className="pb-4 border-b border-brand-800/15 flex justify-between items-center">
               <div>
-                <h2 className="text-lg font-bold text-brand-800">Passwords Vault</h2>
-                <p className="text-xs text-brand-700/65 mt-1">Manage site-specific credentials saved by the auto-fill floating widget.</p>
+                <h2 className="ui-page-title">Passwords Vault</h2>
+                <p className="ui-subtitle">Manage site-specific credentials saved by the auto-fill floating widget.</p>
               </div>
               <div className="relative">
-                <Search className="w-4 h-4 text-brand-600/50 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Search className="w-4 h-4 text-brand-600/50 dark:text-cream-100/50 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   placeholder="Search domain..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="bg-white border border-brand-800/15 focus:border-brand-500 rounded-xl pl-9 pr-4 py-1.5 text-xs text-brand-800 focus:outline-none w-60 placeholder:text-brand-600/50"
+                  className="ui-input rounded-xl pl-9 pr-4 py-1.5 text-xs focus:outline-none w-60"
                 />
               </div>
             </div>
 
             <div className="ui-panel-soft rounded-2xl overflow-hidden mt-2">
-              <div className="px-4 py-3 bg-cream-200/50 border-b border-brand-800/15 text-xs font-semibold text-brand-700/75 uppercase tracking-wider">
+              <div className="ui-table-bar">
                 Saved Accounts
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-brand-800/15 text-[10px] text-brand-700/60 uppercase tracking-wider">
+                    <tr className="border-b ui-border-subtle ui-table-head">
                       <th className="p-4">Site / Domain</th>
                       <th className="p-4">Username / Email</th>
                       <th className="p-4">Password</th>
@@ -1244,15 +1232,15 @@ export default function OptionsApp() {
                       .map(c => {
                         const isVisible = visiblePasswords[c.id] || false;
                         return (
-                          <tr key={c.id} className="hover:bg-white/75 text-brand-800">
-                            <td className="p-4 font-semibold text-brand-900">{c.domain}</td>
-                            <td className="p-4 font-mono">{c.username || <span className="text-brand-600/70">None</span>}</td>
+                          <tr key={c.id} className="ui-table-row">
+                            <td className="p-4 font-semibold ui-heading">{c.domain}</td>
+                            <td className="p-4 font-mono">{c.username || <span className="ui-muted">None</span>}</td>
                             <td className="p-4 font-mono">
                               <div className="flex items-center gap-2">
                                 <span className="min-w-[100px]">{isVisible ? c.password : '••••••••••••'}</span>
                                 <button
                                   onClick={() => setVisiblePasswords({ ...visiblePasswords, [c.id]: !isVisible })}
-                                  className="p-1 rounded text-brand-700/65 hover:text-brand-700 transition hover:bg-cream-200"
+                                  className="p-1 rounded ui-muted hover:text-brand-700 dark:hover:text-cream-100 transition hover:bg-cream-200 dark:hover:bg-brand-800/50"
                                 >
                                   {isVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                                 </button>
@@ -1261,7 +1249,7 @@ export default function OptionsApp() {
                             <td className="p-4 text-right">
                               <button
                                 onClick={() => handleDeleteCredential(c.id)}
-                                className="p-1.5 rounded-lg bg-white hover:bg-white border border-brand-800/15 text-brand-700/75 hover:text-rose-450 transition cursor-pointer"
+                                className="ui-icon-btn hover:text-rose-500 dark:hover:text-rose-300"
                                 title="Delete credential"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -1272,7 +1260,7 @@ export default function OptionsApp() {
                       })}
                     {credentials.length === 0 && (
                       <tr>
-                        <td colSpan={4} className="text-center py-10 text-brand-600/50 text-xs">
+                        <td colSpan={4} className="text-center py-10 ui-empty">
                           No credentials saved. Save passwords on login forms using the page floating widget.
                         </td>
                       </tr>

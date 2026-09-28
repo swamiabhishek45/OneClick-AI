@@ -53,8 +53,8 @@ type EducationSubBlockProps = {
 
 export function EducationSubBlock({ title, children }: EducationSubBlockProps) {
   return (
-    <div className="rounded-xl border border-brand-800/15 bg-cream-50/80 p-4 sm:p-5 dark:bg-brand-950/50 dark:border-brand-600/25">
-      <h4 className="text-xs font-semibold text-brand-700 dark:text-brand-300 mb-4 pb-2 border-b border-brand-800/15 dark:border-brand-600/25">
+    <div className="rounded-xl border border-brand-800/15 bg-cream-50/80 p-4 sm:p-5 dark:bg-brand-900/40 dark:border-brand-600/30">
+      <h4 className="text-xs font-semibold text-brand-700 dark:text-cream-100/90 mb-4 pb-2 border-b border-brand-800/15 dark:border-brand-600/25">
         {title}
       </h4>
       <div className={profileSectionGridClass}>{children}</div>

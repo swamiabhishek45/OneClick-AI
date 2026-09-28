@@ -23,20 +23,20 @@ export function SectionCustomFields({
   const sectionFields = fields.filter((f) => (f.section || 'personal') === section);
 
   return (
-    <div className="sm:col-span-2 mt-2 pt-5 border-t border-brand-800/15">
+    <div className="sm:col-span-2 mt-2 pt-5 border-t ui-border-subtle">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-brand-700/75">
+          <p className="ui-section-label">
             Extra fields
           </p>
-          <p className="text-[11px] text-brand-700/65 mt-0.5">
+          <p className="text-[11px] ui-muted mt-0.5">
             Optional answers matched by label during autofill
           </p>
         </div>
         <button
           type="button"
           onClick={() => onAdd(section)}
-          className="bg-brand-600/12 border border-brand-600/25 hover:bg-brand-600/20 text-brand-800 py-2 px-3.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shrink-0"
+          className="bg-brand-600 hover:bg-brand-500 text-cream-100 border border-brand-500/40 dark:border-brand-400/35 py-2 px-3.5 rounded-lg text-xs font-semibold shadow-sm shadow-brand-600/15 dark:shadow-brand-950/50 transition cursor-pointer flex items-center gap-1.5 shrink-0"
         >
           <Plus className="w-4 h-4" />
           Add field
@@ -44,7 +44,7 @@ export function SectionCustomFields({
       </div>
 
       {sectionFields.length === 0 ? (
-        <p className="text-xs text-brand-700/65 rounded-lg border border-dashed border-brand-800/25 py-4 px-3 text-center">
+        <p className="text-xs ui-empty rounded-lg border border-dashed border-brand-800/25 dark:border-brand-600/30 py-4 px-3 text-center">
           No extra fields yet — e.g. Gender, visa status, ethnicity
         </p>
       ) : (
@@ -59,7 +59,7 @@ export function SectionCustomFields({
             return (
               <div
                 key={field.id}
-                className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_40px] gap-3 items-start sm:items-center rounded-xl border border-brand-800/15 bg-cream-50/80 p-3 sm:p-0 sm:border-0 sm:bg-transparent"
+                className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_40px] gap-3 items-start sm:items-center rounded-xl border ui-border-subtle bg-cream-50/80 dark:bg-brand-900/35 p-3 sm:p-0 sm:border-0 sm:bg-transparent"
               >
                 <div>
                   <span className={`${profileLabelClass} sm:hidden`}>Label</span>
@@ -85,7 +85,7 @@ export function SectionCustomFields({
                   type="button"
                   onClick={() => onRemove(globalIndex)}
                   title="Remove field"
-                  className="h-[42px] w-full sm:w-10 flex items-center justify-center bg-slate-900 border border-slate-800 hover:border-rose-500/40 hover:text-rose-400 text-slate-400 transition rounded-lg cursor-pointer"
+                  className="h-[42px] w-full sm:w-10 flex items-center justify-center ui-icon-btn hover:border-rose-500/40 hover:text-rose-500 dark:hover:text-rose-300"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
