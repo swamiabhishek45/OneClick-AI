@@ -217,7 +217,7 @@ async function runAutofill(options: {
         filledCount: 0,
         error:
           geminiWarning ||
-          'No confident field matches for this form. Add a Gemini API key in Settings & AI.',
+          'No confident field matches for this form. Add your Gemini API key in Settings & AI.',
       };
     }
 

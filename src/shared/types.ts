@@ -31,10 +31,14 @@ export interface JobInfo {
   preferredLocation: string;
 }
 
+export type CustomFieldSection = 'personal' | 'professional' | 'education' | 'jobInfo';
+
 export interface CustomField {
   id: string;
   name: string;
   value: string;
+  /** Which profile section this extra field belongs to (used for autofill mapping). */
+  section?: CustomFieldSection;
 }
 
 export interface EducationLevel {

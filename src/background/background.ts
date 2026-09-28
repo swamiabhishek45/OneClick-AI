@@ -33,32 +33,11 @@ import {
   ScannedFieldMetadata,
 } from '../shared/ai';
 import { learnUserCorrection } from '../shared/learning';
-import { UserProfile, AppSettings } from '../shared/types';
+import { UserProfile } from '../shared/types';
+import { createEmptyStarterProfile, DUMMY_DEMO_PROFILE } from '../shared/profileSeeds';
 
-function getEffectiveGeminiApiKey(settings: AppSettings): string {
-  return (
-    settings.ai.geminiApiKey?.trim() ||
-    (typeof process !== 'undefined' && process.env.GEMINI_API_KEY?.trim()) ||
-    ''
-  );
-}
-
-/** Sync API key from local `.env` at build time into extension storage (if dashboard key is empty). */
-async function syncGeminiKeyFromBuildEnv() {
-  const builtInKey = (process.env.GEMINI_API_KEY || '').trim();
-  if (!builtInKey) return;
-
-  const settings = await getAppSettings();
-  if (settings.ai.geminiApiKey?.trim()) return;
-
-  await saveAppSettings({
-    ...settings,
-    ai: {
-      ...settings.ai,
-      geminiApiKey: builtInKey,
-      provider: settings.ai.provider === 'heuristic' ? 'hybrid' : settings.ai.provider,
-    },
-  });
+function getEffectiveGeminiApiKey(settings: { ai: { geminiApiKey?: string } }): string {
+  return settings.ai.geminiApiKey?.trim() || '';
 }
 
 // Initialize Database on install or worker start
@@ -66,95 +45,19 @@ chrome.runtime.onInstalled.addListener(async () => {
   console.log("OneClick Autofill AI installed.");
   try {
     await initDb();
-    await syncGeminiKeyFromBuildEnv();
-    // Pre-populate a default profile if none exists
     const profiles = await getProfiles();
-    const defaultProfile: UserProfile = {
-      id: 'default',
-      name: 'Abhishek Profile',
-      personal: {
-        fullName: 'Abhishek Baswaraj Swami',
-        firstName: 'Abhishek',
-        lastName: 'Swami',
-        email: 'abhishekswami1435@gmail.com',
-        phone: '+918956008591',
-        address: 'Pune',
-        city: 'Pune',
-        state: 'Maharashtra',
-        country: 'India',
-        postalCode: '411001',
-      },
-      professional: {
-        jobTitle: 'Full Stack Developer',
-        experience: '1+',
-        currentCompany: 'One Union Solutions',
-        skills:
-          'TypeScript, JavaScript, React, Next.js, Node.js, Express.js, Python, REST APIs, MongoDB, PostgreSQL, HTML, CSS, Tailwind CSS, Git, Docker, LLM, GenAI, Prompt Engineering, RAG, AI Integration, Full Stack Development',
-        education:
-          'B.Tech (CSE)',
-        degree: 'B.Tech',
-        college: 'Vilasrao Deshmukh Foundation Group of Institutions, Latur',
-        linkedin: 'https://www.linkedin.com/in/swamiabhishek45/',
-        github: 'https://github.com/swamiabhishek45',
-        portfolio: 'https://swamiabhishek45.online/',
-      },
-      education: {
-        tenth: {
-          schoolOrCollege: 'Parimal High School, Latur',
-          degree: 'SSC',
-          fieldOfStudy: 'Science',
-          passingYear: '2019',
-          grade: '86.20%',
-        },
-        twelfthOrDiploma: {
-          schoolOrCollege: 'Shyamgir Mahavidyalaya, Latur',
-          degree: 'HSC',
-          fieldOfStudy: 'PCMB',
-          passingYear: '2021',
-          grade: '82.16%',
-        },
-        ug: {
-          schoolOrCollege: 'Vilasrao Deshmukh Foundation Group of Institutions, Latur',
-          degree: 'B.Tech',
-          fieldOfStudy: 'CSE',
-          passingYear: '2025',
-          grade: '8.20 CGPA',
-        },
-        pg: {
-          schoolOrCollege: '',
-          degree: '',
-          fieldOfStudy: '',
-          passingYear: '',
-          grade: '',
-        },
-      },
-      jobInfo: {
-        currentCTC: '350000',
-        expectedCTC: '500000',
-        noticePeriod: '15 Days',
-        preferredLocation: 'Pune, Remote',
-      },
-      customFields: [],
-    };
+
+    if (!profiles.some((p) => p.id === DUMMY_DEMO_PROFILE.id)) {
+      await saveProfile(DUMMY_DEMO_PROFILE);
+    }
 
     if (profiles.length === 0) {
-      await saveProfile(defaultProfile);
-    } else {
-      const existingDefault = profiles.find((p) => p.id === 'default');
-      const seedEmails = new Set(['john.doe@example.com', 'abhishekswami1435@gmail.com']);
-      if (
-        existingDefault &&
-        seedEmails.has(existingDefault.personal.email.toLowerCase())
-      ) {
-        await saveProfile({ ...defaultProfile, name: existingDefault.name });
-      }
+      await saveProfile(createEmptyStarterProfile());
     }
   } catch (err) {
     console.error("Database initialization failed on install:", err);
   }
 });
-
-void syncGeminiKeyFromBuildEnv();
 
 // Listener to open Options Page
 chrome.action.onClicked.addListener(() => {
@@ -416,7 +319,7 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
 
         if (!hasApiKey && stillUnmatched.some(isOpenEndedQuestionField)) {
           geminiWarning =
-            'Gemini API key missing. Add it in Dashboard → Settings & AI (or .env + rebuild).';
+            'Gemini API key missing. Add your key in Dashboard → Settings & AI.';
         }
 
         if (stillUnmatched.length > 0 && (wantsGeminiMapping || wantsGeminiAnswers)) {

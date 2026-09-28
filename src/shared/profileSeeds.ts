@@ -1,0 +1,155 @@
+import { UserProfile } from './types';
+
+/** Sample profile for testing autofill — clearly fake data. */
+export const DUMMY_DEMO_PROFILE: UserProfile = {
+  id: 'demo-dummy',
+  name: 'Demo Profile (Sample Data)',
+  personal: {
+    fullName: 'Jane Doe',
+    firstName: 'Jane',
+    lastName: 'Doe',
+    email: 'jane.doe@example.com',
+    phone: '+1 (555) 010-2030',
+    address: '123 Sample Street',
+    city: 'San Francisco',
+    state: 'California',
+    country: 'United States',
+    postalCode: '94105',
+  },
+  professional: {
+    jobTitle: 'Software Engineer',
+    experience: '3',
+    currentCompany: 'Acme Corp',
+    skills: 'JavaScript, TypeScript, React, Node.js, SQL, Git',
+    education: 'B.S. Computer Science',
+    degree: 'B.S.',
+    college: 'Example State University',
+    linkedin: 'https://www.linkedin.com/in/example-jane-doe',
+    github: 'https://github.com/example-janedoe',
+    portfolio: 'https://example.com/portfolio',
+  },
+  education: {
+    tenth: {
+      schoolOrCollege: 'Example High School',
+      degree: 'General',
+      fieldOfStudy: 'Science',
+      passingYear: '2014',
+      grade: '92%',
+    },
+    twelfthOrDiploma: {
+      schoolOrCollege: 'Example Senior Secondary School',
+      degree: 'HSC',
+      fieldOfStudy: 'PCM',
+      passingYear: '2016',
+      grade: '88%',
+    },
+    ug: {
+      schoolOrCollege: 'Example State University',
+      degree: 'B.S.',
+      fieldOfStudy: 'Computer Science',
+      passingYear: '2020',
+      grade: '3.7 GPA',
+    },
+    pg: {
+      schoolOrCollege: '',
+      degree: '',
+      fieldOfStudy: '',
+      passingYear: '',
+      grade: '',
+    },
+  },
+  jobInfo: {
+    currentCTC: '90000',
+    expectedCTC: '120000',
+    noticePeriod: '30 Days',
+    preferredLocation: 'Remote, San Francisco',
+  },
+  customFields: [
+    {
+      id: 'demo-gender',
+      name: 'Gender',
+      value: 'Female',
+      section: 'personal',
+    },
+    {
+      id: 'demo-work-auth',
+      name: 'Work Authorization',
+      value: 'Authorized to work in the US',
+      section: 'personal',
+    },
+    {
+      id: 'demo-relocate',
+      name: 'Willing to Relocate',
+      value: 'Yes',
+      section: 'jobInfo',
+    },
+  ],
+};
+
+export function createEmptyStarterProfile(): UserProfile {
+  return {
+    id: 'default',
+    name: 'My Profile',
+    personal: {
+      fullName: '',
+      firstName: '',
+      lastName: '',
+      email: '',
+      phone: '',
+      address: '',
+      city: '',
+      state: '',
+      country: '',
+      postalCode: '',
+    },
+    professional: {
+      jobTitle: '',
+      experience: '',
+      currentCompany: '',
+      skills: '',
+      education: '',
+      degree: '',
+      college: '',
+      linkedin: '',
+      github: '',
+      portfolio: '',
+    },
+    education: {
+      tenth: {
+        schoolOrCollege: '',
+        degree: '',
+        fieldOfStudy: '',
+        passingYear: '',
+        grade: '',
+      },
+      twelfthOrDiploma: {
+        schoolOrCollege: '',
+        degree: '',
+        fieldOfStudy: '',
+        passingYear: '',
+        grade: '',
+      },
+      ug: {
+        schoolOrCollege: '',
+        degree: '',
+        fieldOfStudy: '',
+        passingYear: '',
+        grade: '',
+      },
+      pg: {
+        schoolOrCollege: '',
+        degree: '',
+        fieldOfStudy: '',
+        passingYear: '',
+        grade: '',
+      },
+    },
+    jobInfo: {
+      currentCTC: '',
+      expectedCTC: '',
+      noticePeriod: '',
+      preferredLocation: '',
+    },
+    customFields: [],
+  };
+}

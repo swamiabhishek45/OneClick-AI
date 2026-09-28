@@ -437,7 +437,11 @@ function buildProfileSchema(profile: UserProfile) {
     professional: profile.professional,
     education: profile.education,
     jobInfo: profile.jobInfo,
-    customFields: profile.customFields.map((f) => ({ name: f.name, value: f.value })),
+    customFields: profile.customFields.map((f) => ({
+      name: f.name,
+      value: f.value,
+      section: f.section,
+    })),
   };
 }
 

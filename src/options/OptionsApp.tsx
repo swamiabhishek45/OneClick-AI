@@ -13,8 +13,28 @@ import {
   getAppSettings, saveAppSettings, getActiveProfileId, setActiveProfileId,
   getCredentials, deleteCredential
 } from '../shared/db';
-import { UserProfile, Resume, WebsiteTemplate, ManualMapping, FillHistoryEntry, AppSettings, EducationInfo, SavedCredential } from '../shared/types';
+import {
+  UserProfile,
+  Resume,
+  WebsiteTemplate,
+  ManualMapping,
+  FillHistoryEntry,
+  AppSettings,
+  EducationInfo,
+  SavedCredential,
+  CustomField,
+  CustomFieldSection,
+} from '../shared/types';
 import { ExtensionLogo } from '../shared/ExtensionLogo';
+import { SectionCustomFields } from './SectionCustomFields';
+import {
+  ProfileSection,
+  ProfileField,
+  EducationSubBlock,
+  profileSectionGridClass,
+  profileInputClass,
+  profileTextareaClass,
+} from './ProfileFormUi';
 
 import React, { useState, useEffect } from 'react';
 
@@ -45,7 +65,7 @@ export default function OptionsApp() {
   const [jobInfo, setJobInfo] = useState({
     currentCTC: '', expectedCTC: '', noticePeriod: '', preferredLocation: ''
   });
-  const [customFields, setCustomFields] = useState<{ id: string; name: string; value: string }[]>([]);
+  const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const [education, setEducation] = useState<EducationInfo>({
     tenth: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
     twelfthOrDiploma: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
@@ -101,7 +121,12 @@ export default function OptionsApp() {
       setPersonal(profile.personal);
       setProfessional(profile.professional);
       setJobInfo(profile.jobInfo);
-      setCustomFields(profile.customFields || []);
+      setCustomFields(
+        (profile.customFields || []).map((f) => ({
+          ...f,
+          section: f.section || 'personal',
+        }))
+      );
       setEducation(profile.education || {
         tenth: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
         twelfthOrDiploma: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
@@ -141,36 +166,36 @@ export default function OptionsApp() {
     loadProfileToForm();
   };
 
+  const buildProfileFromForm = (): UserProfile => ({
+    id: selectedProfileId,
+    name: profileName,
+    personal,
+    professional,
+    education,
+    jobInfo,
+    customFields: customFields
+      .filter((f) => f.name.trim())
+      .map((f) => ({ ...f, name: f.name.trim(), section: f.section || 'personal' })),
+  });
+
   const handleSaveProfile = async () => {
     if (!profileName.trim()) {
       showStatus("Profile name is required", "error");
       return;
     }
 
-    const updatedProfile: UserProfile = {
-      id: selectedProfileId,
-      name: profileName,
-      personal,
-      professional,
-      education,
-      jobInfo,
-      customFields
-    };
-
     try {
-      await saveProfile(updatedProfile);
+      await saveProfile(buildProfileFromForm());
       showStatus("Profile saved successfully!");
-      
+
       const allProfiles = await getProfiles();
       setProfiles(allProfiles);
-      
-      // If it's the first profile, set it as active
+
       if (allProfiles.length === 1) {
         await setActiveProfileId(selectedProfileId);
         setActiveProfileIdState(selectedProfileId);
       }
-      
-      // Notify other parts of the extension
+
       if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
         chrome.runtime.sendMessage({ action: 'notifyDataUpdated' });
       }
@@ -228,10 +253,15 @@ export default function OptionsApp() {
     }
   };
 
-  // Custom Fields Operations
-  const handleAddCustomField = () => {
-    setCustomFields([...customFields, { id: Math.random().toString(36).substring(2), name: '', value: '' }]);
+  const handleAddCustomField = (section: CustomFieldSection) => {
+    setCustomFields([
+      ...customFields,
+      { id: Math.random().toString(36).substring(2), name: '', value: '', section },
+    ]);
   };
+
+  const getCustomFieldGlobalIndex = (fieldId: string) =>
+    customFields.findIndex((f) => f.id === fieldId);
 
   const handleCustomFieldChange = (index: number, key: 'name' | 'value', val: string) => {
     setCustomFields(prevFields =>
@@ -610,313 +640,188 @@ export default function OptionsApp() {
             </div>
 
             {/* Profile Form Editor */}
-            <div className="flex-1 p-6 overflow-y-auto">
-              <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-850">
-                <div className="flex items-center gap-3">
-                  <input
-                    type="text"
-                    value={profileName}
-                    onChange={(e) => setProfileName(e.target.value)}
-                    placeholder="Profile Name (e.g. Software Engineer)"
-                    className="bg-transparent border-b border-slate-800 hover:border-slate-600 focus:border-brand-500 text-lg font-bold focus:outline-none pb-1 text-slate-100 placeholder:text-slate-600"
-                  />
-                </div>
+            <div className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto min-w-0">
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8 pb-4 border-b border-slate-800">
+                <input
+                  type="text"
+                  value={profileName}
+                  onChange={(e) => setProfileName(e.target.value)}
+                  placeholder="Profile name"
+                  className="w-full sm:max-w-md bg-transparent border-b-2 border-slate-800 hover:border-slate-600 focus:border-brand-500 text-xl font-bold focus:outline-none pb-2 text-slate-100 placeholder:text-slate-600"
+                />
                 <button
                   onClick={handleSaveProfile}
-                  className="bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold py-2 px-4 rounded-xl shadow-lg shadow-brand-500/25 flex items-center gap-2 transition cursor-pointer"
+                  className="bg-brand-600 hover:bg-brand-500 text-white text-sm font-semibold py-2.5 px-5 rounded-xl shadow-lg shadow-brand-500/25 flex items-center justify-center gap-2 transition cursor-pointer shrink-0"
                 >
                   <Save className="w-4 h-4" />
                   Save Profile
                 </button>
               </div>
 
-              {/* Form Grid sections */}
-              <div className="flex flex-col gap-6">
-                
-                {/* 1. Personal Information */}
-                <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <User className="w-4.5 h-4.5 text-brand-400" />
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-350">Personal Information</h3>
+              <div className="flex flex-col gap-8 max-w-5xl">
+                <ProfileSection icon={User} title="Personal Information">
+                  <div className={profileSectionGridClass}>
+                    <ProfileField label="Full Name" span="full">
+                      <input type="text" value={personal.fullName} onChange={(e) => setPersonal({ ...personal, fullName: e.target.value })} className={profileInputClass} />
+                    </ProfileField>
+                    <ProfileField label="First Name">
+                      <input type="text" value={personal.firstName} onChange={(e) => setPersonal({ ...personal, firstName: e.target.value })} className={profileInputClass} />
+                    </ProfileField>
+                    <ProfileField label="Last Name">
+                      <input type="text" value={personal.lastName} onChange={(e) => setPersonal({ ...personal, lastName: e.target.value })} className={profileInputClass} />
+                    </ProfileField>
+                    <ProfileField label="Email Address">
+                      <input type="email" value={personal.email} onChange={(e) => setPersonal({ ...personal, email: e.target.value })} className={profileInputClass} />
+                    </ProfileField>
+                    <ProfileField label="Phone Number">
+                      <input type="tel" value={personal.phone} onChange={(e) => setPersonal({ ...personal, phone: e.target.value })} className={profileInputClass} />
+                    </ProfileField>
+                    <ProfileField label="Street Address" span="full">
+                      <input type="text" value={personal.address} onChange={(e) => setPersonal({ ...personal, address: e.target.value })} className={profileInputClass} />
+                    </ProfileField>
+                    <ProfileField label="City">
+                      <input type="text" value={personal.city} onChange={(e) => setPersonal({ ...personal, city: e.target.value })} className={profileInputClass} />
+                    </ProfileField>
+                    <ProfileField label="State / Region">
+                      <input type="text" value={personal.state} onChange={(e) => setPersonal({ ...personal, state: e.target.value })} className={profileInputClass} />
+                    </ProfileField>
+                    <ProfileField label="Country">
+                      <input type="text" value={personal.country} onChange={(e) => setPersonal({ ...personal, country: e.target.value })} className={profileInputClass} />
+                    </ProfileField>
+                    <ProfileField label="Postal Code">
+                      <input type="text" value={personal.postalCode} onChange={(e) => setPersonal({ ...personal, postalCode: e.target.value })} className={profileInputClass} />
+                    </ProfileField>
+                    <SectionCustomFields section="personal" fields={customFields} onAdd={handleAddCustomField} onChange={handleCustomFieldChange} onRemove={handleRemoveCustomField} getGlobalIndex={getCustomFieldGlobalIndex} />
                   </div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4 bg-slate-900/30 border border-slate-850 p-5 rounded-2xl">
-                    <div className="col-span-1 md:col-span-3">
-                      <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Full Name</label>
-                      <input type="text" value={personal.fullName} onChange={(e) => setPersonal({...personal, fullName: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">First Name</label>
-                      <input type="text" value={personal.firstName} onChange={(e) => setPersonal({...personal, firstName: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Last Name</label>
-                      <input type="text" value={personal.lastName} onChange={(e) => setPersonal({...personal, lastName: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Email Address</label>
-                      <input type="email" value={personal.email} onChange={(e) => setPersonal({...personal, email: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Phone Number</label>
-                      <input type="text" value={personal.phone} onChange={(e) => setPersonal({...personal, phone: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                    </div>
-                    <div className="col-span-2">
-                      <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Address</label>
-                      <input type="text" value={personal.address} onChange={(e) => setPersonal({...personal, address: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">City</label>
-                      <input type="text" value={personal.city} onChange={(e) => setPersonal({...personal, city: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">State / Region</label>
-                      <input type="text" value={personal.state} onChange={(e) => setPersonal({...personal, state: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Country</label>
-                      <input type="text" value={personal.country} onChange={(e) => setPersonal({...personal, country: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Postal Code</label>
-                      <input type="text" value={personal.postalCode} onChange={(e) => setPersonal({...personal, postalCode: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                    </div>
-                  </div>
-                </div>
+                </ProfileSection>
 
-                {/* 2. Professional Details */}
-                <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Briefcase className="w-4.5 h-4.5 text-brand-400" />
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-350">Professional Details</h3>
+                <ProfileSection icon={Briefcase} title="Professional Details">
+                  <div className={profileSectionGridClass}>
+                    <ProfileField label="Job Title">
+                      <input type="text" value={professional.jobTitle} onChange={(e) => setProfessional({ ...professional, jobTitle: e.target.value })} className={profileInputClass} />
+                    </ProfileField>
+                    <ProfileField label="Experience (Years)">
+                      <input type="text" value={professional.experience} onChange={(e) => setProfessional({ ...professional, experience: e.target.value })} className={profileInputClass} />
+                    </ProfileField>
+                    <ProfileField label="Current Company">
+                      <input type="text" value={professional.currentCompany} onChange={(e) => setProfessional({ ...professional, currentCompany: e.target.value })} className={profileInputClass} />
+                    </ProfileField>
+                    <ProfileField label="Degree">
+                      <input type="text" value={professional.degree} onChange={(e) => setProfessional({ ...professional, degree: e.target.value })} className={profileInputClass} />
+                    </ProfileField>
+                    <ProfileField label="College / University" span="full">
+                      <input type="text" value={professional.college} onChange={(e) => setProfessional({ ...professional, college: e.target.value })} className={profileInputClass} />
+                    </ProfileField>
+                    <ProfileField label="LinkedIn URL">
+                      <input type="url" value={professional.linkedin} onChange={(e) => setProfessional({ ...professional, linkedin: e.target.value })} className={profileInputClass} />
+                    </ProfileField>
+                    <ProfileField label="GitHub URL">
+                      <input type="url" value={professional.github} onChange={(e) => setProfessional({ ...professional, github: e.target.value })} className={profileInputClass} />
+                    </ProfileField>
+                    <ProfileField label="Portfolio URL" span="full">
+                      <input type="url" value={professional.portfolio} onChange={(e) => setProfessional({ ...professional, portfolio: e.target.value })} className={profileInputClass} />
+                    </ProfileField>
+                    <ProfileField label="Skills (comma-separated)" span="full">
+                      <textarea value={professional.skills} onChange={(e) => setProfessional({ ...professional, skills: e.target.value })} rows={3} className={profileTextareaClass} />
+                    </ProfileField>
+                    <SectionCustomFields section="professional" fields={customFields} onAdd={handleAddCustomField} onChange={handleCustomFieldChange} onRemove={handleRemoveCustomField} getGlobalIndex={getCustomFieldGlobalIndex} />
                   </div>
-                  <div className="grid grid-cols-2 gap-4 bg-slate-900/30 border border-slate-850 p-5 rounded-2xl">
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Job Title</label>
-                      <input type="text" value={professional.jobTitle} onChange={(e) => setProfessional({...professional, jobTitle: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Experience (Years)</label>
-                      <input type="text" value={professional.experience} onChange={(e) => setProfessional({...professional, experience: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Current Company</label>
-                      <input type="text" value={professional.currentCompany} onChange={(e) => setProfessional({...professional, currentCompany: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Degree</label>
-                      <input type="text" value={professional.degree} onChange={(e) => setProfessional({...professional, degree: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">College / University</label>
-                      <input type="text" value={professional.college} onChange={(e) => setProfessional({...professional, college: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">LinkedIn Profile URL</label>
-                      <input type="text" value={professional.linkedin} onChange={(e) => setProfessional({...professional, linkedin: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">GitHub Profile URL</label>
-                      <input type="text" value={professional.github} onChange={(e) => setProfessional({...professional, github: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Portfolio Link</label>
-                      <input type="text" value={professional.portfolio} onChange={(e) => setProfessional({...professional, portfolio: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                    </div>
-                    <div className="col-span-2">
-                      <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Skills (comma-separated list)</label>
-                      <textarea value={professional.skills} onChange={(e) => setProfessional({...professional, skills: e.target.value})} rows={3} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                    </div>
-                  </div>
-                </div>
+                </ProfileSection>
 
-                {/* 3. Educational Details */}
-                <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <GraduationCap className="w-4.5 h-4.5 text-brand-400" />
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-350">Educational Details</h3>
-                  </div>
-                  <div className="flex flex-col gap-6 bg-slate-900/30 border border-slate-850 p-5 rounded-2xl">
-                    {/* 10th Class */}
-                    <div>
-                      <h4 className="text-xs font-semibold text-brand-400 mb-3 pb-1 border-b border-slate-800">10th Standard / Matriculation</h4>
-                      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                        <div className="col-span-2">
-                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">School Name</label>
-                          <input type="text" value={education.tenth.schoolOrCollege} onChange={(e) => setEducation({...education, tenth: {...education.tenth, schoolOrCollege: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Board / Degree</label>
-                          <input type="text" value={education.tenth.degree} onChange={(e) => setEducation({...education, tenth: {...education.tenth, degree: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" placeholder="e.g. CBSE, ICSE" />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Passing Year</label>
-                          <input type="text" value={education.tenth.passingYear} onChange={(e) => setEducation({...education, tenth: {...education.tenth, passingYear: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Grade / CGPA / %</label>
-                          <input type="text" value={education.tenth.grade} onChange={(e) => setEducation({...education, tenth: {...education.tenth, grade: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                        </div>
-                      </div>
-                    </div>
+                <ProfileSection icon={GraduationCap} title="Educational Details">
+                  <div className="flex flex-col gap-4">
+                    <EducationSubBlock title="10th Standard / Matriculation">
+                      <ProfileField label="School Name" span="full">
+                        <input type="text" value={education.tenth.schoolOrCollege} onChange={(e) => setEducation({ ...education, tenth: { ...education.tenth, schoolOrCollege: e.target.value } })} className={profileInputClass} />
+                      </ProfileField>
+                      <ProfileField label="Board / Degree">
+                        <input type="text" value={education.tenth.degree} onChange={(e) => setEducation({ ...education, tenth: { ...education.tenth, degree: e.target.value } })} className={profileInputClass} placeholder="e.g. CBSE" />
+                      </ProfileField>
+                      <ProfileField label="Passing Year">
+                        <input type="text" value={education.tenth.passingYear} onChange={(e) => setEducation({ ...education, tenth: { ...education.tenth, passingYear: e.target.value } })} className={profileInputClass} />
+                      </ProfileField>
+                      <ProfileField label="Grade / CGPA / %">
+                        <input type="text" value={education.tenth.grade} onChange={(e) => setEducation({ ...education, tenth: { ...education.tenth, grade: e.target.value } })} className={profileInputClass} />
+                      </ProfileField>
+                    </EducationSubBlock>
 
-                    {/* 12th Class / Diploma */}
-                    <div>
-                      <h4 className="text-xs font-semibold text-brand-400 mb-3 pb-1 border-b border-slate-800">12th Standard / Diploma / Intermediate</h4>
-                      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                        <div className="col-span-2">
-                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">School / College Name</label>
-                          <input type="text" value={education.twelfthOrDiploma.schoolOrCollege} onChange={(e) => setEducation({...education, twelfthOrDiploma: {...education.twelfthOrDiploma, schoolOrCollege: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Board / Degree</label>
-                          <input type="text" value={education.twelfthOrDiploma.degree} onChange={(e) => setEducation({...education, twelfthOrDiploma: {...education.twelfthOrDiploma, degree: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" placeholder="e.g. HSC, CBSE, Diploma" />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Stream / Field</label>
-                          <input type="text" value={education.twelfthOrDiploma.fieldOfStudy} onChange={(e) => setEducation({...education, twelfthOrDiploma: {...education.twelfthOrDiploma, fieldOfStudy: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" placeholder="e.g. Science, Commerce" />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Passing Year</label>
-                          <input type="text" value={education.twelfthOrDiploma.passingYear} onChange={(e) => setEducation({...education, twelfthOrDiploma: {...education.twelfthOrDiploma, passingYear: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Grade / CGPA / %</label>
-                          <input type="text" value={education.twelfthOrDiploma.grade} onChange={(e) => setEducation({...education, twelfthOrDiploma: {...education.twelfthOrDiploma, grade: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                        </div>
-                      </div>
-                    </div>
+                    <EducationSubBlock title="12th / Diploma / Intermediate">
+                      <ProfileField label="School / College" span="full">
+                        <input type="text" value={education.twelfthOrDiploma.schoolOrCollege} onChange={(e) => setEducation({ ...education, twelfthOrDiploma: { ...education.twelfthOrDiploma, schoolOrCollege: e.target.value } })} className={profileInputClass} />
+                      </ProfileField>
+                      <ProfileField label="Board / Degree">
+                        <input type="text" value={education.twelfthOrDiploma.degree} onChange={(e) => setEducation({ ...education, twelfthOrDiploma: { ...education.twelfthOrDiploma, degree: e.target.value } })} className={profileInputClass} />
+                      </ProfileField>
+                      <ProfileField label="Stream / Field">
+                        <input type="text" value={education.twelfthOrDiploma.fieldOfStudy} onChange={(e) => setEducation({ ...education, twelfthOrDiploma: { ...education.twelfthOrDiploma, fieldOfStudy: e.target.value } })} className={profileInputClass} />
+                      </ProfileField>
+                      <ProfileField label="Passing Year">
+                        <input type="text" value={education.twelfthOrDiploma.passingYear} onChange={(e) => setEducation({ ...education, twelfthOrDiploma: { ...education.twelfthOrDiploma, passingYear: e.target.value } })} className={profileInputClass} />
+                      </ProfileField>
+                      <ProfileField label="Grade / CGPA / %">
+                        <input type="text" value={education.twelfthOrDiploma.grade} onChange={(e) => setEducation({ ...education, twelfthOrDiploma: { ...education.twelfthOrDiploma, grade: e.target.value } })} className={profileInputClass} />
+                      </ProfileField>
+                    </EducationSubBlock>
 
-                    {/* Undergraduate (UG) */}
-                    <div>
-                      <h4 className="text-xs font-semibold text-brand-400 mb-3 pb-1 border-b border-slate-800">Undergraduate (UG)</h4>
-                      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                        <div className="col-span-2">
-                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">College / University</label>
-                          <input type="text" value={education.ug.schoolOrCollege} onChange={(e) => setEducation({...education, ug: {...education.ug, schoolOrCollege: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Degree Name</label>
-                          <input type="text" value={education.ug.degree} onChange={(e) => setEducation({...education, ug: {...education.ug, degree: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" placeholder="e.g. B.Tech, B.Sc, BA" />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Major / Specialization</label>
-                          <input type="text" value={education.ug.fieldOfStudy} onChange={(e) => setEducation({...education, ug: {...education.ug, fieldOfStudy: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" placeholder="e.g. Computer Science" />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Passing Year</label>
-                          <input type="text" value={education.ug.passingYear} onChange={(e) => setEducation({...education, ug: {...education.ug, passingYear: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Grade / CGPA / %</label>
-                          <input type="text" value={education.ug.grade} onChange={(e) => setEducation({...education, ug: {...education.ug, grade: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                        </div>
-                      </div>
-                    </div>
+                    <EducationSubBlock title="Undergraduate (UG)">
+                      <ProfileField label="College / University" span="full">
+                        <input type="text" value={education.ug.schoolOrCollege} onChange={(e) => setEducation({ ...education, ug: { ...education.ug, schoolOrCollege: e.target.value } })} className={profileInputClass} />
+                      </ProfileField>
+                      <ProfileField label="Degree">
+                        <input type="text" value={education.ug.degree} onChange={(e) => setEducation({ ...education, ug: { ...education.ug, degree: e.target.value } })} className={profileInputClass} />
+                      </ProfileField>
+                      <ProfileField label="Major / Specialization">
+                        <input type="text" value={education.ug.fieldOfStudy} onChange={(e) => setEducation({ ...education, ug: { ...education.ug, fieldOfStudy: e.target.value } })} className={profileInputClass} />
+                      </ProfileField>
+                      <ProfileField label="Passing Year">
+                        <input type="text" value={education.ug.passingYear} onChange={(e) => setEducation({ ...education, ug: { ...education.ug, passingYear: e.target.value } })} className={profileInputClass} />
+                      </ProfileField>
+                      <ProfileField label="Grade / CGPA / %">
+                        <input type="text" value={education.ug.grade} onChange={(e) => setEducation({ ...education, ug: { ...education.ug, grade: e.target.value } })} className={profileInputClass} />
+                      </ProfileField>
+                    </EducationSubBlock>
 
-                    {/* Postgraduate (PG) */}
-                    <div>
-                      <h4 className="text-xs font-semibold text-brand-400 mb-3 pb-1 border-b border-slate-800">Postgraduate (PG)</h4>
-                      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                        <div className="col-span-2">
-                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">College / University</label>
-                          <input type="text" value={education.pg.schoolOrCollege} onChange={(e) => setEducation({...education, pg: {...education.pg, schoolOrCollege: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Degree Name</label>
-                          <input type="text" value={education.pg.degree} onChange={(e) => setEducation({...education, pg: {...education.pg, degree: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" placeholder="e.g. M.Tech, MBA, MS" />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Major / Specialization</label>
-                          <input type="text" value={education.pg.fieldOfStudy} onChange={(e) => setEducation({...education, pg: {...education.pg, fieldOfStudy: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" placeholder="e.g. Data Science" />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Passing Year</label>
-                          <input type="text" value={education.pg.passingYear} onChange={(e) => setEducation({...education, pg: {...education.pg, passingYear: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Grade / CGPA / %</label>
-                          <input type="text" value={education.pg.grade} onChange={(e) => setEducation({...education, pg: {...education.pg, grade: e.target.value}})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                        </div>
-                      </div>
+                    <EducationSubBlock title="Postgraduate (PG)">
+                      <ProfileField label="College / University" span="full">
+                        <input type="text" value={education.pg.schoolOrCollege} onChange={(e) => setEducation({ ...education, pg: { ...education.pg, schoolOrCollege: e.target.value } })} className={profileInputClass} />
+                      </ProfileField>
+                      <ProfileField label="Degree">
+                        <input type="text" value={education.pg.degree} onChange={(e) => setEducation({ ...education, pg: { ...education.pg, degree: e.target.value } })} className={profileInputClass} />
+                      </ProfileField>
+                      <ProfileField label="Major / Specialization">
+                        <input type="text" value={education.pg.fieldOfStudy} onChange={(e) => setEducation({ ...education, pg: { ...education.pg, fieldOfStudy: e.target.value } })} className={profileInputClass} />
+                      </ProfileField>
+                      <ProfileField label="Passing Year">
+                        <input type="text" value={education.pg.passingYear} onChange={(e) => setEducation({ ...education, pg: { ...education.pg, passingYear: e.target.value } })} className={profileInputClass} />
+                      </ProfileField>
+                      <ProfileField label="Grade / CGPA / %">
+                        <input type="text" value={education.pg.grade} onChange={(e) => setEducation({ ...education, pg: { ...education.pg, grade: e.target.value } })} className={profileInputClass} />
+                      </ProfileField>
+                    </EducationSubBlock>
+
+                    <div className={profileSectionGridClass}>
+                      <SectionCustomFields section="education" fields={customFields} onAdd={handleAddCustomField} onChange={handleCustomFieldChange} onRemove={handleRemoveCustomField} getGlobalIndex={getCustomFieldGlobalIndex} />
                     </div>
                   </div>
-                </div>
+                </ProfileSection>
 
-                {/* 4. Compensation & Notice */}
-                <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Award className="w-4.5 h-4.5 text-brand-400" />
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-350">Compensation & Notice</h3>
+                <ProfileSection icon={Award} title="Compensation & Notice">
+                  <div className={profileSectionGridClass}>
+                    <ProfileField label="Current CTC">
+                      <input type="text" value={jobInfo.currentCTC} onChange={(e) => setJobInfo({ ...jobInfo, currentCTC: e.target.value })} className={profileInputClass} />
+                    </ProfileField>
+                    <ProfileField label="Expected CTC">
+                      <input type="text" value={jobInfo.expectedCTC} onChange={(e) => setJobInfo({ ...jobInfo, expectedCTC: e.target.value })} className={profileInputClass} />
+                    </ProfileField>
+                    <ProfileField label="Notice Period">
+                      <input type="text" value={jobInfo.noticePeriod} onChange={(e) => setJobInfo({ ...jobInfo, noticePeriod: e.target.value })} className={profileInputClass} placeholder="e.g. 30 Days" />
+                    </ProfileField>
+                    <ProfileField label="Preferred Location">
+                      <input type="text" value={jobInfo.preferredLocation} onChange={(e) => setJobInfo({ ...jobInfo, preferredLocation: e.target.value })} className={profileInputClass} />
+                    </ProfileField>
+                    <SectionCustomFields section="jobInfo" fields={customFields} onAdd={handleAddCustomField} onChange={handleCustomFieldChange} onRemove={handleRemoveCustomField} getGlobalIndex={getCustomFieldGlobalIndex} />
                   </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-900/30 border border-slate-850 p-5 rounded-2xl">
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Current CTC</label>
-                      <input type="text" value={jobInfo.currentCTC} onChange={(e) => setJobInfo({...jobInfo, currentCTC: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Expected CTC</label>
-                      <input type="text" value={jobInfo.expectedCTC} onChange={(e) => setJobInfo({...jobInfo, expectedCTC: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Notice Period (Days)</label>
-                      <input type="text" value={jobInfo.noticePeriod} onChange={(e) => setJobInfo({...jobInfo, noticePeriod: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Preferred Location</label>
-                      <input type="text" value={jobInfo.preferredLocation} onChange={(e) => setJobInfo({...jobInfo, preferredLocation: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* 5. Custom User-Defined Fields */}
-                <div>
-                  <div className="flex justify-between items-center mb-3">
-                    <div className="flex items-center gap-2">
-                      <Plus className="w-4.5 h-4.5 text-brand-400" />
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-350">Custom Profile Fields</h3>
-                    </div>
-                    <button
-                      onClick={handleAddCustomField}
-                      className="bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 py-1.5 px-3 rounded-lg text-[10px] font-semibold transition cursor-pointer flex items-center gap-1"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      Add Custom Field
-                    </button>
-                  </div>
-                  
-                  <div className="flex flex-col gap-2 bg-slate-900/30 border border-slate-850 p-5 rounded-2xl">
-                    {customFields.map((field, idx) => (
-                      <div key={field.id} className="flex gap-3 items-center">
-                        <input
-                          type="text"
-                          value={field.name}
-                          onChange={(e) => handleCustomFieldChange(idx, 'name', e.target.value)}
-                          placeholder="Field Name (e.g. Employee Code)"
-                          className="flex-1 bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200"
-                        />
-                        <input
-                          type="text"
-                          value={field.value}
-                          onChange={(e) => handleCustomFieldChange(idx, 'value', e.target.value)}
-                          placeholder="Profile Value (e.g. EMP123)"
-                          className="flex-1 bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200"
-                        />
-                        <button
-                          onClick={() => handleRemoveCustomField(idx)}
-                          className="p-2 bg-slate-900 border border-slate-800 hover:bg-slate-850 text-slate-400 hover:text-rose-400 transition rounded-lg cursor-pointer"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))}
-                    {customFields.length === 0 && (
-                      <div className="text-center py-4 text-xs text-slate-650">
-                        No custom fields defined yet. Custom fields let you map site-specific variables instantly.
-                      </div>
-                    )}
-                  </div>
-                </div>
-
+                </ProfileSection>
               </div>
             </div>
           </div>
@@ -1233,7 +1138,9 @@ export default function OptionsApp() {
                       onChange={(e) => setAppSettingsState({ ...appSettings, ai: { ...appSettings.ai, geminiApiKey: e.target.value } })}
                       className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-slate-200"
                     />
-                    <p className="text-[10px] text-slate-500 mt-1">Stored locally in your browser. Required for AI answers and hybrid/Gemini mapping.</p>
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      Your key only — stored locally in this browser. Get a free key from Google AI Studio. Not read from .env or build files.
+                    </p>
                   </div>
                   <div>
                     <label className="block text-[10px] font-semibold text-slate-450 uppercase mb-1">Model</label>
