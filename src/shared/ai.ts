@@ -154,6 +154,25 @@ export function matchFieldHeuristically(
 
   let typeHintMatch = matchByInputType(field);
 
+  const fieldTypeLower = (field.type || '').toLowerCase();
+  if (fieldTypeLower === 'textarea' || fieldTypeLower === 'contenteditable' || fieldTypeLower === 'textbox') {
+    // Long-form answers are handled by Gemini (or manual profile custom fields via learning only).
+    for (const labelText of [label, placeholder, ariaLabel, name, id].filter(Boolean)) {
+      const learned = learningMappings.find((m) => m.label.toLowerCase() === labelText.toLowerCase());
+      if (learned && learned.confidenceScore > 0.5) {
+        const val = getProfileValueByPath(profile, learned.matchedFieldPath);
+        if (val) {
+          return {
+            fieldPath: learned.matchedFieldPath,
+            confidence: Math.min(1.0, learned.confidenceScore),
+            matchedValue: val,
+          };
+        }
+      }
+    }
+    return null;
+  }
+
   // 1. Check AI Learning history mappings first (100% confidence boost)
   const allLabelsToCheck = [label, placeholder, ariaLabel, name, id].filter(Boolean);
   for (const labelText of allLabelsToCheck) {
@@ -364,6 +383,33 @@ export const AI_GENERATED_FIELD_PATH = 'ai.generated';
 
 const GEMINI_BATCH_SIZE = 18;
 
+const GEMINI_MODEL_FALLBACKS = [
+  'gemini-2.0-flash',
+  'gemini-1.5-flash',
+  'gemini-2.0-flash-lite',
+  'gemini-1.5-pro',
+];
+
+/** Essay / motivation fields that should use Gemini generate, not salary heuristics. */
+export function isOpenEndedQuestionField(field: ScannedFieldMetadata): boolean {
+  const type = (field.type || '').toLowerCase();
+  if (type === 'textarea' || type === 'contenteditable' || type === 'textbox') {
+    return true;
+  }
+  const q = `${field.label} ${field.placeholder} ${field.surroundingText} ${field.ariaLabel}`.toLowerCase();
+  return (
+    q.includes('?') ||
+    /proud|achiev|motivat|why (this|us|you)|tell us|describe|explain|want this|cover letter|personal statement|anything else|additional information|relevant experience|about yourself|interest in/.test(
+      q
+    )
+  );
+}
+
+export function isLikelyMotivationQuestion(field: ScannedFieldMetadata): boolean {
+  const q = `${field.label} ${field.surroundingText}`.toLowerCase();
+  return /how much do you want|want this role|why do you want|excited about|interested in this/.test(q);
+}
+
 function buildProfileSchema(profile: UserProfile) {
   return {
     personal: profile.personal,
@@ -374,11 +420,11 @@ function buildProfileSchema(profile: UserProfile) {
   };
 }
 
-async function callGeminiJson<T>(
+async function callGeminiJsonOnce<T>(
   apiKey: string,
   modelName: string,
   prompt: string
-): Promise<T | null> {
+): Promise<T> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
   const response = await fetch(url, {
     method: 'POST',
@@ -390,13 +436,35 @@ async function callGeminiJson<T>(
   });
 
   if (!response.ok) {
-    throw new Error(`Gemini API HTTP error: ${response.status}`);
+    const errBody = await response.text().catch(() => '');
+    throw new Error(`Gemini API HTTP ${response.status} (${modelName}): ${errBody.slice(0, 200)}`);
   }
 
   const data = await response.json();
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
   const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
   return JSON.parse(cleaned) as T;
+}
+
+async function callGeminiJson<T>(
+  apiKey: string,
+  modelName: string,
+  prompt: string
+): Promise<T | null> {
+  const models = [modelName, ...GEMINI_MODEL_FALLBACKS.filter((m) => m !== modelName)];
+  let lastError: unknown;
+  for (const model of models) {
+    try {
+      return await callGeminiJsonOnce<T>(apiKey, model, prompt);
+    } catch (error) {
+      lastError = error;
+      const msg = String(error);
+      if (!msg.includes('404') && !msg.includes('400') && !msg.includes('403')) {
+        break;
+      }
+    }
+  }
+  throw lastError;
 }
 
 function fieldSummary(fields: ScannedFieldMetadata[]) {
@@ -495,7 +563,7 @@ For EACH field scanId, return a JSON object keyed by scanId. Each value:
 
 Rules:
 1. strategy "profile": use when the field clearly maps to profile data. Set fieldPath accordingly. Leave answer null (client reads profile).
-2. strategy "generate": use for open-ended questions (e.g. proud of, why this company, motivation, summary, cover letter prompts, achievements, "tell us about yourself", role-specific questions). Ground answers in profile${jobDescription ? ' and tailor to the job description' : ''}. Do NOT invent employers, degrees, dates, or certifications not in the profile.
+2. strategy "generate": use for open-ended questions (e.g. proud of, why this company, motivation, summary, cover letter prompts, achievements, "tell us about yourself", role-specific questions). Questions like "How much do you want this?" mean motivation/interest — NOT salary — write a sincere 2–4 sentence answer. Ground answers in profile${jobDescription ? ' and tailor to the job description' : ''}. Do NOT invent employers, degrees, dates, or certifications not in the profile.
 3. strategy "skip": file uploads or when insufficient data.
 4. Agreements/consent/terms checkboxes: strategy profile, fieldPath "system.agreement", confidence 1.0.
 5. Radio/select/checkbox: put the exact option label/value to choose in "answer" (strategy generate or profile).
@@ -515,7 +583,7 @@ Rules:
 
       for (const [scanId, resolution] of Object.entries(raw)) {
         const conf = resolution.confidence ?? 0;
-        if (conf < 0.45) continue;
+        if (conf < 0.35) continue;
 
         const strategy = resolution.strategy || 'skip';
         if (strategy === 'skip') continue;

@@ -27,11 +27,20 @@ import {
   matchFieldHeuristically,
   resolveUnmatchedFieldsWithGemini,
   getProfileValueByPath,
+  isOpenEndedQuestionField,
   MatchResult,
   ScannedFieldMetadata,
 } from '../shared/ai';
 import { learnUserCorrection } from '../shared/learning';
-import { UserProfile } from '../shared/types';
+import { UserProfile, AppSettings } from '../shared/types';
+
+function getEffectiveGeminiApiKey(settings: AppSettings): string {
+  return (
+    settings.ai.geminiApiKey?.trim() ||
+    (typeof process !== 'undefined' && process.env.GEMINI_API_KEY?.trim()) ||
+    ''
+  );
+}
 
 /** Sync API key from local `.env` at build time into extension storage (if dashboard key is empty). */
 async function syncGeminiKeyFromBuildEnv() {
@@ -281,7 +290,8 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
         const template = await getTemplateByDomain(domain);
 
         const matches: Record<string, MatchResult> = {};
-        const apiKey = settings.ai.geminiApiKey?.trim();
+        let geminiWarning: string | undefined;
+        const apiKey = getEffectiveGeminiApiKey(settings);
         const useJobDescription =
           settings.ai.useJobDescriptionContext !== false && jobDescription.length > 0;
         const jdContext = useJobDescription ? jobDescription : '';
@@ -362,7 +372,19 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
           await applyHeuristicMatch(field);
         }
 
-        const stillUnmatched = fields.filter((f) => !matches[f.scanId]);
+        for (const scanId of Object.keys(matches)) {
+          if (!matches[scanId].matchedValue?.trim()) {
+            delete matches[scanId];
+          }
+        }
+
+        for (const field of fields) {
+          if (isOpenEndedQuestionField(field) && !matches[field.scanId]?.matchedValue?.trim()) {
+            delete matches[field.scanId];
+          }
+        }
+
+        const stillUnmatched = fields.filter((f) => !matches[f.scanId]?.matchedValue?.trim());
         const provider = settings.ai.provider;
         const hasApiKey = Boolean(apiKey);
         const wantsGeminiMapping =
@@ -370,26 +392,44 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
         const wantsGeminiAnswers =
           hasApiKey && settings.ai.answerOpenQuestions !== false;
 
+        if (!hasApiKey && stillUnmatched.some(isOpenEndedQuestionField)) {
+          geminiWarning =
+            'Gemini API key missing. Add it in Dashboard → Settings & AI (or .env + rebuild).';
+        }
+
         if (stillUnmatched.length > 0 && (wantsGeminiMapping || wantsGeminiAnswers)) {
-          const aiFilled = await resolveUnmatchedFieldsWithGemini(
-            stillUnmatched,
-            profile,
-            apiKey!,
-            settings.ai.geminiModel,
-            {
-              jobDescription: jdContext,
-              includeProfileMapping: wantsGeminiMapping,
-              includeGeneratedAnswers: wantsGeminiAnswers,
+          try {
+            const aiFilled = await resolveUnmatchedFieldsWithGemini(
+              stillUnmatched,
+              profile,
+              apiKey,
+              settings.ai.geminiModel,
+              {
+                jobDescription: jdContext,
+                includeProfileMapping: wantsGeminiMapping,
+                includeGeneratedAnswers: wantsGeminiAnswers,
+              }
+            );
+            for (const [scanId, match] of Object.entries(aiFilled)) {
+              if (!matches[scanId]) {
+                matches[scanId] = match;
+              }
             }
-          );
-          for (const [scanId, match] of Object.entries(aiFilled)) {
-            if (!matches[scanId]) {
-              matches[scanId] = match;
+            if (
+              Object.keys(aiFilled).length === 0 &&
+              stillUnmatched.some(isOpenEndedQuestionField)
+            ) {
+              geminiWarning =
+                geminiWarning ||
+                'Gemini did not return answers. Check API key, model name, and quota in Google AI Studio.';
             }
+          } catch (error) {
+            console.error('Gemini autofill error:', error);
+            geminiWarning = `Gemini error: ${error instanceof Error ? error.message : String(error)}`;
           }
         }
 
-        sendResponse({ matches });
+        sendResponse({ matches, geminiWarning });
         break;
       }
 

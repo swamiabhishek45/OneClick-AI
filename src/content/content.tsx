@@ -4,7 +4,7 @@ import WidgetApp from './WidgetApp';
 import { scanFormFields, findLoginFields } from './FormScanner';
 import { extractJobDescription } from './JobDescriptionScanner';
 import { fillFormFields, fillFormFieldsAsync, isFieldEmpty } from './AutofillEngine';
-import { AUTO_FILL_CONFIDENCE_THRESHOLD } from '../shared/ai';
+import { AI_GENERATED_FIELD_PATH, AUTO_FILL_CONFIDENCE_THRESHOLD } from '../shared/ai';
 import { DomainRule } from '../shared/types';
 import '../index.css';
 
@@ -154,18 +154,22 @@ async function runAutofill(options: {
 
     const jobDescription = extractJobDescription(document);
 
-    const matches: Record<string, { fieldPath: string; confidence: number; matchedValue: string }> =
-      await new Promise((resolve) => {
-        chrome.runtime.sendMessage(
-          {
-            action: 'matchFields',
-            fields: eligibleMetadata,
-            profileId: targetProfileId,
-            jobDescription,
-          },
-          (response) => resolve(response?.matches || {})
-        );
-      });
+    const matchResponse = await new Promise<{
+      matches?: Record<string, { fieldPath: string; confidence: number; matchedValue: string }>;
+      geminiWarning?: string;
+    }>((resolve) => {
+      chrome.runtime.sendMessage(
+        {
+          action: 'matchFields',
+          fields: eligibleMetadata,
+          profileId: targetProfileId,
+          jobDescription,
+        },
+        (response) => resolve(response || {})
+      );
+    });
+    const matches = matchResponse.matches || {};
+    const geminiWarning = matchResponse.geminiWarning;
 
     const fillPayload: { element: HTMLElement; value: string; controlKind?: string }[] = [];
     const minConfidence = manual ? 0.4 : AUTO_FILL_CONFIDENCE_THRESHOLD;
@@ -175,7 +179,10 @@ async function runAutofill(options: {
       if (!scanId || !matches[scanId]) continue;
 
       const match = matches[scanId];
-      if (match.confidence < minConfidence || !match.matchedValue) continue;
+      if (!match.matchedValue) continue;
+      const minForField =
+        match.fieldPath === AI_GENERATED_FIELD_PATH ? 0.35 : minConfidence;
+      if (match.confidence < minForField) continue;
 
       const meta = eligibleMetadata.find((m) => m.scanId === scanId);
       fillPayload.push({
@@ -202,7 +209,13 @@ async function runAutofill(options: {
     }
 
     if (fillPayload.length === 0) {
-      return { success: false, filledCount: 0, error: 'No confident field matches for this form.' };
+      return {
+        success: false,
+        filledCount: 0,
+        error:
+          geminiWarning ||
+          'No confident field matches for this form. Add a Gemini API key in Settings & AI.',
+      };
     }
 
     const count = await fillFormFieldsAsync(fillPayload);

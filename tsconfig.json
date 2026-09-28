@@ -22,10 +22,10 @@
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
 
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
-    }
+      "@/*": ["./src/*"]
+    },
+    "types": ["chrome", "node"]
   },
   "include": ["src"]
 }

@@ -204,6 +204,10 @@ export function isFieldEmpty(element: HTMLElement): boolean {
   if (element instanceof HTMLTextAreaElement) {
     return element.value.trim().length === 0;
   }
+  if (element.isContentEditable || element.getAttribute('role') === 'textbox') {
+    const text = (element.innerText || element.textContent || '').trim().toLowerCase();
+    return !text || text === 'type here...' || text === 'type here';
+  }
   if (element instanceof HTMLSelectElement) {
     const val = element.value.trim();
     if (!val) return true;
@@ -301,6 +305,16 @@ export function fillField(element: HTMLElement, value: string): boolean {
 
     if (element instanceof HTMLTextAreaElement) {
       setReactValue(element, value, 'value');
+      return true;
+    }
+
+    if (element.isContentEditable || element.getAttribute('role') === 'textbox') {
+      element.focus();
+      element.textContent = value;
+      element.dispatchEvent(
+        new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: value })
+      );
+      element.dispatchEvent(new Event('change', { bubbles: true }));
       return true;
     }
 

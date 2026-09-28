@@ -15,15 +15,22 @@ export function scanFormFields(root: Element | Document = document): {
       // If it is an input, select, textarea, or a custom input role (radio, checkbox, listbox)
       const role = el.getAttribute('role');
       const isCustomInput = role === 'radio' || role === 'checkbox' || role === 'listbox';
+      const isRichTextField =
+        (el.isContentEditable && el.getAttribute('contenteditable') !== 'false') ||
+        (role === 'textbox' && !(el instanceof HTMLInputElement));
 
       if (
         el instanceof HTMLInputElement ||
         el instanceof HTMLTextAreaElement ||
         el instanceof HTMLSelectElement ||
-        isCustomInput
+        isCustomInput ||
+        isRichTextField
       ) {
         // Exclude hidden fields and submit buttons
-        const type = el instanceof HTMLInputElement ? el.type : (role || el.tagName.toLowerCase());
+        let type = el instanceof HTMLInputElement ? el.type : (role || el.tagName.toLowerCase());
+        if (isRichTextField) {
+          type = el.isContentEditable ? 'contenteditable' : 'textbox';
+        }
         const shouldExclude =
           type === 'hidden' ||
           type === 'submit' ||
@@ -32,7 +39,10 @@ export function scanFormFields(root: Element | Document = document): {
           type === 'reset' ||
           el.hasAttribute('disabled') ||
           el.getAttribute('aria-disabled') === 'true' ||
-          ('readOnly' in el && (el as any).readOnly);
+          ('readOnly' in el && (el as any).readOnly) ||
+          (isRichTextField &&
+            !el.closest('form, [role="form"], main, [class*="application"], [class*="apply"]') &&
+            el === document.body);
 
         if (!shouldExclude) {
           if (el instanceof HTMLInputElement && type === 'radio' && el.name) {
@@ -161,7 +171,23 @@ function findLabel(input: HTMLElement): string {
     parent = parent.parentElement;
   }
 
-  // 4. Preceding sibling label or text
+  // 4. Question label in field wrapper (common on modern apply forms)
+  const wrapper = input.closest(
+    '[class*="field"], [class*="question"], [class*="FormField"], fieldset, li, form > div, section > div'
+  );
+  if (wrapper) {
+    const directLabel = wrapper.querySelector(
+      ':scope > label, :scope > p, :scope > span, :scope > h3, :scope > h4, :scope > legend'
+    );
+    if (directLabel && !directLabel.contains(input)) {
+      const wrapperLabel = directLabel.textContent?.replace(/\*/g, '').replace(/\s+/g, ' ').trim();
+      if (wrapperLabel && wrapperLabel.length >= 5 && wrapperLabel.length <= 200) {
+        return wrapperLabel;
+      }
+    }
+  }
+
+  // 5. Preceding sibling label or text
   let prev = input.previousElementSibling;
   if (prev) {
     if (prev.tagName.toLowerCase() === 'label' && prev.textContent && prev.textContent.trim()) {
@@ -173,7 +199,7 @@ function findLabel(input: HTMLElement): string {
     }
   }
 
-  // 5. Table row label (common in ATS / CRM forms)
+  // 6. Table row label (common in ATS / CRM forms)
   const row = input.closest('tr');
   if (row) {
     const headerCell = row.querySelector('th, td.label, td:first-child');
@@ -185,7 +211,7 @@ function findLabel(input: HTMLElement): string {
     }
   }
 
-  // 6. Fieldset legend
+  // 7. Fieldset legend
   const fieldset = input.closest('fieldset');
   if (fieldset) {
     const legend = fieldset.querySelector('legend');
@@ -194,7 +220,7 @@ function findLabel(input: HTMLElement): string {
     }
   }
 
-  // 7. Parent wrapper text search (common in React/SPA design systems)
+  // 8. Parent wrapper text search (common in React/SPA design systems)
   const cell = input.closest('div, td, li, p, section');
   if (cell) {
     const labelCandidates = cell.querySelectorAll('label, span, p, b, strong, h1, h2, h3, h4, h5, h6');
