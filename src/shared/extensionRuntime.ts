@@ -26,10 +26,7 @@ export function onExtensionContextInvalidated(handler: () => void): () => void {
 
 function markInvalidatedFromError(error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
-  if (
-    message.includes('Extension context invalidated') ||
-    message.includes('Receiving end does not exist')
-  ) {
+  if (message.includes('Extension context invalidated')) {
     notifyExtensionContextInvalidated();
   }
 }

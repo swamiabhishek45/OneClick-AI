@@ -73,10 +73,7 @@ function installGlobalInvalidationHandlers(): void {
       event instanceof PromiseRejectionEvent
         ? String(event.reason?.message ?? event.reason)
         : String(event.message ?? '');
-    if (
-      message.includes('Extension context invalidated') ||
-      message.includes('Receiving end does not exist')
-    ) {
+    if (message.includes('Extension context invalidated')) {
       event.preventDefault?.();
       notifyExtensionContextInvalidated();
       teardownContentScript();
@@ -102,9 +99,9 @@ function initWidget() {
   if (widgetMounted) return;
   if (!isExtensionContextValid()) return;
   if (document.getElementById('oneclick-autofill-root')) return;
+  if (!document.body) return;
 
   const cssUrl = getExtensionURL('content.css');
-  if (!cssUrl) return;
 
   const hostDiv = document.createElement('div');
   hostDiv.id = 'oneclick-autofill-root';
@@ -113,10 +110,12 @@ function initWidget() {
 
   const shadowRoot = hostDiv.attachShadow({ mode: 'open' });
 
-  const linkEl = document.createElement('link');
-  linkEl.rel = 'stylesheet';
-  linkEl.href = cssUrl;
-  shadowRoot.appendChild(linkEl);
+  if (cssUrl) {
+    const linkEl = document.createElement('link');
+    linkEl.rel = 'stylesheet';
+    linkEl.href = cssUrl;
+    shadowRoot.appendChild(linkEl);
+  }
 
   const container = document.createElement('div');
   container.id = 'oneclick-widget-container';
@@ -132,17 +131,25 @@ function initWidget() {
 
 function scheduleWidgetInit() {
   if (widgetMounted || !isTopFrame()) return;
+  if (!document.body) {
+    window.requestAnimationFrame(scheduleWidgetInit);
+    return;
+  }
   initWidget();
 }
 
-function setupLazyWidgetMount() {
+/** Always show the FAB on the top frame (forms may live in cross-origin iframes). */
+function setupWidgetMount() {
+  scheduleWidgetInit();
+  window.setTimeout(scheduleWidgetInit, 400);
+  window.setTimeout(scheduleWidgetInit, 1500);
+
   const tryDetectForms = () => {
     const { elements } = scanAllFormFields();
     if (elements.length > 0) {
       scheduleWidgetInit();
     }
   };
-
   window.setTimeout(tryDetectForms, 800);
 
   const onFirstInteraction = () => {
@@ -460,6 +467,7 @@ function teardownContentScript() {
   mutationObserver?.disconnect();
   mutationObserver = null;
   document.getElementById('oneclick-autofill-root')?.remove();
+  widgetMounted = false;
 }
 
 onExtensionContextInvalidated(teardownContentScript);
@@ -645,7 +653,7 @@ function bootstrapContentScript(): void {
   }) as EventListener);
 
   if (isTopFrame()) {
-    setupLazyWidgetMount();
+    setupWidgetMount();
   }
   checkAutoFillOnLoad();
   setupMutationObserver();
