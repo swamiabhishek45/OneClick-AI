@@ -6,7 +6,7 @@ import { findLoginFields } from './FormScanner';
 
 export default function WidgetApp() {
   const [expanded, setExpanded] = useState(false);
-  const [dragPosition, setDragPosition] = useState({ x: 24, y: 100 }); // bottom-right offsets
+  const [dragPosition, setDragPosition] = useState({ x: 16, y: 16 }); // offset from bottom-right
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [activeProfileId, setActiveProfileId] = useState('default');
   const [isMappingMode, setIsMappingMode] = useState(false);
@@ -23,8 +23,34 @@ export default function WidgetApp() {
   const [hasPasswordField, setHasPasswordField] = useState(false);
   
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const dragStartRef = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
   const isDraggingRef = useRef(false);
+
+  const PANEL_WIDTH = 360;
+  const PANEL_MAX_HEIGHT = 560;
+  const FAB_SIZE = 52;
+  const VIEWPORT_MARGIN = 12;
+
+  const clampPosition = (pos: { x: number; y: number }, expandedPanel: boolean) => {
+    const panelW = expandedPanel
+      ? Math.min(PANEL_WIDTH, window.innerWidth - VIEWPORT_MARGIN * 2)
+      : FAB_SIZE;
+    const panelH = expandedPanel
+      ? Math.min(PANEL_MAX_HEIGHT, window.innerHeight - VIEWPORT_MARGIN * 2)
+      : FAB_SIZE;
+
+    return {
+      x: Math.max(
+        VIEWPORT_MARGIN,
+        Math.min(window.innerWidth - panelW - VIEWPORT_MARGIN, pos.x)
+      ),
+      y: Math.max(
+        VIEWPORT_MARGIN,
+        Math.min(window.innerHeight - panelH - VIEWPORT_MARGIN, pos.y)
+      ),
+    };
+  };
 
   // Fetch profiles and configuration on mount
   useEffect(() => {
@@ -51,6 +77,19 @@ export default function WidgetApp() {
       window.removeEventListener('oneclick-autofill-complete', onAutofillDone);
     };
   }, []);
+
+  useEffect(() => {
+    const onResize = () => {
+      setDragPosition((prev) => clampPosition(prev, expanded));
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [expanded]);
+
+  useEffect(() => {
+    if (!expanded) return;
+    setDragPosition((prev) => clampPosition(prev, true));
+  }, [expanded]);
 
   const loadData = () => {
     // Get list of profiles
@@ -81,20 +120,26 @@ export default function WidgetApp() {
     setTimeout(() => setStatusMessage(null), 3000);
   };
 
-  // Drag handlers
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (buttonRef.current) {
-      isDraggingRef.current = false;
-      dragStartRef.current = {
-        x: e.clientX,
-        y: e.clientY,
-        posX: dragPosition.x,
-        posY: dragPosition.y
-      };
-      
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-    }
+  const beginDrag = (e: React.MouseEvent) => {
+    isDraggingRef.current = false;
+    dragStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      posX: dragPosition.x,
+      posY: dragPosition.y,
+    };
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const handleFabMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    beginDrag(e);
+  };
+
+  const handlePanelHeaderMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button')) return;
+    beginDrag(e);
   };
 
   const handleMouseMove = (e: MouseEvent) => {
@@ -105,10 +150,15 @@ export default function WidgetApp() {
       isDraggingRef.current = true;
     }
 
-    setDragPosition({
-      x: Math.max(10, Math.min(window.innerWidth - 60, dragStartRef.current.posX - deltaX)),
-      y: Math.max(10, Math.min(window.innerHeight - 60, dragStartRef.current.posY + deltaY))
-    });
+    setDragPosition(
+      clampPosition(
+        {
+          x: dragStartRef.current.posX - deltaX,
+          y: dragStartRef.current.posY + deltaY,
+        },
+        expanded
+      )
+    );
   };
 
   const handleMouseUp = () => {
@@ -331,26 +381,30 @@ export default function WidgetApp() {
 
   const activeProfile = profiles.find(p => p.id === activeProfileId) || profiles[0];
 
+  const panelWidth = `min(${PANEL_WIDTH}px, calc(100vw - ${VIEWPORT_MARGIN * 2}px))`;
+  const panelMaxHeight = `min(${PANEL_MAX_HEIGHT}px, calc(100vh - ${VIEWPORT_MARGIN * 2}px))`;
+
   return (
-    <div 
-      className="fixed z-[9999999] select-none font-sans text-slate-100"
+    <div
+      className="fixed z-[9999999] select-none font-sans text-slate-100 antialiased"
       style={{
         bottom: `${dragPosition.y}px`,
         right: `${dragPosition.x}px`,
+        maxWidth: panelWidth,
       }}
     >
       {/* Floating Button */}
       {!expanded && !isMappingMode && !selectedElementForMap && (
         <button
           ref={buttonRef}
-          onMouseDown={handleMouseDown}
+          onMouseDown={handleFabMouseDown}
           onClick={() => {
             if (!isDraggingRef.current) {
               setExpanded(true);
               setHasPasswordField(document.querySelector('input[type="password"]') !== null);
             }
           }}
-          className={`flex h-12 w-12 items-center justify-center rounded-full overflow-hidden shadow-lg shadow-brand-500/30 transition-transform active:scale-95 cursor-pointer hover:shadow-brand-500/50 hover:brightness-110 border-2 border-brand-400/40 bg-slate-950 ${
+          className={`flex h-[52px] w-[52px] items-center justify-center rounded-full overflow-hidden shadow-lg shadow-brand-500/30 transition-transform active:scale-95 cursor-pointer hover:shadow-brand-500/50 hover:brightness-110 border-2 border-brand-400/40 bg-slate-950 ${
             isFilling ? 'animate-pulse opacity-80' : 'hover:scale-105'
           }`}
           title="OneClick Autofill AI"
@@ -361,7 +415,7 @@ export default function WidgetApp() {
 
       {/* Manual Mapping Tip Overlay */}
       {isMappingMode && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 flex items-center gap-3 px-4 py-2.5 rounded-full bg-slate-900/90 border border-slate-700/80 backdrop-blur-md shadow-xl text-sm font-medium animate-bounce-slow">
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 flex flex-wrap items-center justify-center gap-2 sm:gap-3 px-4 py-3 rounded-2xl sm:rounded-full bg-slate-900/90 border border-slate-700/80 backdrop-blur-md shadow-xl text-sm font-medium max-w-[calc(100vw-24px)] text-center">
           <span className="w-2.5 h-2.5 rounded-full bg-brand-500 animate-pulse"></span>
           <span>Click any form input on the page to map it...</span>
           <button 
@@ -375,9 +429,12 @@ export default function WidgetApp() {
 
       {/* Manual Mapping Configuration Modal */}
       {selectedElementForMap && (
-        <div className="w-[300px] rounded-2xl bg-slate-900/95 border border-slate-700/80 p-4 shadow-2xl backdrop-blur-md">
+        <div
+          className="rounded-2xl bg-slate-900/95 border border-slate-700/80 p-4 sm:p-5 shadow-2xl backdrop-blur-md"
+          style={{ width: panelWidth, maxHeight: panelMaxHeight, overflowY: 'auto' }}
+        >
           <div className="flex justify-between items-center mb-3">
-            <span className="text-xs font-semibold uppercase tracking-wider text-brand-400">Map Custom Field</span>
+            <span className="text-sm font-semibold uppercase tracking-wider text-brand-400">Map Custom Field</span>
             <button 
               onClick={() => setSelectedElementForMap(null)} 
               className="text-slate-400 hover:text-white transition"
@@ -385,16 +442,20 @@ export default function WidgetApp() {
               <X className="w-4 h-4" />
             </button>
           </div>
-          <p className="text-xs text-slate-400 mb-3">
-            Selected element: <code className="bg-slate-800/80 px-1 py-0.5 rounded text-indigo-300 font-mono text-[10px] break-all">{selectedElementForMap.tagName.toLowerCase()}{selectedElementForMap.id ? `#${selectedElementForMap.id}` : ''}</code>
+          <p className="text-sm text-slate-400 mb-3 leading-relaxed">
+            Selected element:{' '}
+            <code className="bg-slate-800/80 px-1.5 py-0.5 rounded text-indigo-300 font-mono text-xs break-all">
+              {selectedElementForMap.tagName.toLowerCase()}
+              {selectedElementForMap.id ? `#${selectedElementForMap.id}` : ''}
+            </code>
           </p>
 
           <div className="mb-4">
-            <label className="block text-[11px] font-medium text-slate-300 mb-1.5">Link to Profile Field</label>
+            <label className="block text-sm font-medium text-slate-300 mb-2">Link to Profile Field</label>
             <select
               value={selectedFieldForMap}
               onChange={(e) => setSelectedFieldForMap(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-brand-500"
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-brand-500"
             >
               <option value="">-- Choose Field --</option>
               <optgroup label="Personal Information">
@@ -465,17 +526,17 @@ export default function WidgetApp() {
             </select>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             <button
               onClick={() => setSelectedElementForMap(null)}
-              className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer"
+              className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2.5 rounded-lg text-sm font-medium transition cursor-pointer"
             >
               Cancel
             </button>
             <button
               onClick={saveManualFieldMap}
               disabled={!selectedFieldForMap}
-              className="flex-1 bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white py-1.5 rounded-lg text-xs font-medium transition cursor-pointer"
+              className="flex-1 bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white py-2.5 rounded-lg text-sm font-medium transition cursor-pointer"
             >
               Save Mapping
             </button>
@@ -485,38 +546,52 @@ export default function WidgetApp() {
 
       {/* Expanded Main Panel */}
       {expanded && (
-        <div className="w-[320px] rounded-2xl bg-slate-950/95 border border-slate-800 p-4 shadow-2xl backdrop-blur-md flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-4 duration-200">
-          
-          {/* Header */}
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-2">
-              <ExtensionLogo className="h-6 w-6 rounded-md" />
-              <span className="font-semibold text-sm tracking-wide bg-gradient-to-r from-brand-400 to-indigo-300 bg-clip-text text-transparent">OneClick Autofill AI</span>
+        <div
+          ref={panelRef}
+          className="rounded-2xl bg-slate-950/95 border border-slate-800 p-4 sm:p-5 shadow-2xl backdrop-blur-md flex flex-col gap-4 sm:gap-5 box-border"
+          style={{
+            width: panelWidth,
+            maxHeight: panelMaxHeight,
+            overflowY: 'auto',
+            overflowX: 'hidden',
+          }}
+        >
+          {/* Header — draggable */}
+          <div
+            className="flex justify-between items-start gap-2 cursor-grab active:cursor-grabbing"
+            onMouseDown={handlePanelHeaderMouseDown}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <ExtensionLogo className="h-8 w-8 rounded-md shrink-0" />
+              <span className="font-semibold text-base leading-tight tracking-wide bg-gradient-to-r from-brand-400 to-indigo-300 bg-clip-text text-transparent truncate">
+                OneClick Autofill AI
+              </span>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 shrink-0">
               <button
                 onClick={handleEditProfile}
                 title="Edit profiles"
-                className="p-1.5 rounded-lg hover:bg-slate-800/80 text-slate-400 hover:text-slate-100 transition cursor-pointer"
+                className="p-2 rounded-lg hover:bg-slate-800/80 text-slate-400 hover:text-slate-100 transition cursor-pointer"
               >
-                <Settings className="w-4 h-4" />
+                <Settings className="w-5 h-5" />
               </button>
               <button
                 onClick={() => setExpanded(false)}
-                className="p-1.5 rounded-lg hover:bg-slate-800/80 text-slate-400 hover:text-slate-100 transition cursor-pointer"
+                title="Minimize"
+                className="p-2 rounded-lg hover:bg-slate-800/80 text-slate-400 hover:text-slate-100 transition cursor-pointer"
               >
-                <Minimize2 className="w-4 h-4" />
+                <Minimize2 className="w-5 h-5" />
               </button>
             </div>
           </div>
 
           {/* Profile Switcher */}
-          <div className="bg-slate-900/60 rounded-xl p-3 border border-slate-800/50">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Active Profile</span>
-              <button 
+          <div className="bg-slate-900/60 rounded-xl p-3.5 sm:p-4 border border-slate-800/50">
+            <div className="flex justify-between items-center mb-2.5 gap-2">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Active Profile</span>
+              <button
                 onClick={handleEditProfile}
-                className="text-[10px] text-brand-400 hover:underline cursor-pointer"
+                className="text-xs text-brand-400 hover:underline cursor-pointer shrink-0"
               >
                 Manage
               </button>
@@ -528,7 +603,7 @@ export default function WidgetApp() {
                 setActiveProfileId(id);
                 chrome.runtime.sendMessage({ action: 'setActiveProfileId', activeProfileId: id });
               }}
-              className="w-full bg-slate-800 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-brand-500 cursor-pointer"
+              className="w-full bg-slate-800 border border-slate-700/80 rounded-lg px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-brand-500 cursor-pointer"
             >
               {profiles.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
@@ -540,75 +615,87 @@ export default function WidgetApp() {
           </div>
 
           {/* Core Actions */}
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2.5">
             <button
               onClick={handleAutofill}
               disabled={isFilling}
-              className="w-full py-2.5 px-4 rounded-xl font-medium text-xs shadow-md shadow-brand-600/20 transition flex items-center justify-center gap-2 cursor-pointer bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 hover:scale-[1.02] text-white disabled:opacity-60"
+              className="w-full py-3 px-4 rounded-xl font-semibold text-sm shadow-md shadow-brand-600/20 transition flex items-center justify-center gap-2 cursor-pointer bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 active:scale-[0.99] text-white disabled:opacity-60"
             >
-              <Sparkles className="w-4 h-4" />
+              <Sparkles className="w-5 h-5 shrink-0" />
               {isFilling ? 'Filling Form...' : 'Autofill Page'}
             </button>
 
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={startManualMapping}
-                className="py-2 px-3 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-350 hover:text-white text-[11px] font-medium transition flex items-center justify-center gap-1.5 cursor-pointer"
+                className="py-2.5 px-3 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 hover:text-white text-sm font-medium transition flex items-center justify-center gap-2 cursor-pointer min-h-[44px]"
               >
-                <Edit3 className="w-3.5 h-3.5 text-indigo-400" />
-                Manual Map
+                <Edit3 className="w-4 h-4 text-indigo-400 shrink-0" />
+                <span className="truncate">Manual Map</span>
               </button>
               <button
                 onClick={handleSaveTemplate}
-                className="py-2 px-3 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-350 hover:text-white text-[11px] font-medium transition flex items-center justify-center gap-1.5 cursor-pointer"
+                className="py-2.5 px-3 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 hover:text-white text-sm font-medium transition flex items-center justify-center gap-2 cursor-pointer min-h-[44px]"
               >
-                <Save className="w-3.5 h-3.5 text-brand-400" />
-                Save Template
+                <Save className="w-4 h-4 text-brand-400 shrink-0" />
+                <span className="truncate">Save Template</span>
               </button>
             </div>
             {hasPasswordField && (
               <button
                 onClick={handleSaveCredentials}
-                className="w-full py-2 px-3 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-350 hover:text-white text-[11px] font-medium transition flex items-center justify-center gap-1.5 cursor-pointer"
+                className="w-full py-2.5 px-3 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 hover:text-white text-sm font-medium transition flex items-center justify-center gap-2 cursor-pointer min-h-[44px]"
               >
-                <Key className="w-3.5 h-3.5 text-yellow-500" />
+                <Key className="w-4 h-4 text-yellow-500 shrink-0" />
                 Save Credentials
               </button>
             )}
           </div>
 
           {/* Quick Settings & Status */}
-          <div className="border-t border-slate-800/80 pt-3 flex flex-col gap-2.5">
-            <div className="flex justify-between items-center text-xs">
-              <div>
-                <span className="text-slate-300 font-medium">Automatic filling on this site</span>
-                <p className="text-[10px] text-slate-500 mt-0.5">Fill empty fields when the page loads or changes</p>
+          <div className="border-t border-slate-800/80 pt-4 flex flex-col gap-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <span className="text-sm text-slate-200 font-medium block leading-snug">
+                  Automatic filling on this site
+                </span>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  Fill empty fields when the page loads or changes
+                </p>
               </div>
               <button
+                type="button"
                 onClick={toggleDomainEnable}
-                className="text-slate-400 hover:text-white transition cursor-pointer"
+                aria-pressed={domainRule.enabled}
+                className="text-slate-400 hover:text-white transition cursor-pointer shrink-0 p-1 -mr-1"
               >
                 {domainRule.enabled ? (
-                  <ToggleRight className="w-7 h-7 text-brand-500" />
+                  <ToggleRight className="w-9 h-9 text-brand-500" />
                 ) : (
-                  <ToggleLeft className="w-7 h-7 text-slate-650" />
+                  <ToggleLeft className="w-9 h-9 text-slate-500" />
                 )}
               </button>
             </div>
-            <div className="flex justify-between items-center text-xs">
-              <div>
-                <span className="text-slate-300 font-medium">Auto-fill when page loads</span>
-                <p className="text-[10px] text-slate-500 mt-0.5">Matches and fills empty fields automatically</p>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <span className="text-sm text-slate-200 font-medium block leading-snug">
+                  Auto-fill when page loads
+                </span>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  Matches and fills empty fields automatically
+                </p>
               </div>
               <button
+                type="button"
                 onClick={toggleAutoFillOnLoad}
                 disabled={!domainRule.enabled}
-                className="text-slate-400 hover:text-white transition cursor-pointer disabled:opacity-40"
+                aria-pressed={domainRule.autoFillOnLoad && domainRule.enabled}
+                className="text-slate-400 hover:text-white transition cursor-pointer disabled:opacity-40 shrink-0 p-1 -mr-1"
               >
                 {domainRule.autoFillOnLoad && domainRule.enabled ? (
-                  <ToggleRight className="w-7 h-7 text-brand-500" />
+                  <ToggleRight className="w-9 h-9 text-brand-500" />
                 ) : (
-                  <ToggleLeft className="w-7 h-7 text-slate-650" />
+                  <ToggleLeft className="w-9 h-9 text-slate-500" />
                 )}
               </button>
             </div>
@@ -616,7 +703,7 @@ export default function WidgetApp() {
 
           {/* Toast Notification area */}
           {statusMessage && (
-            <div className={`text-center py-1.5 px-3 rounded-lg text-xs font-medium animate-fade-in ${
+            <div className={`text-center py-2 px-3 rounded-lg text-sm font-medium ${
               statusMessage.type === 'success' ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/40' :
               statusMessage.type === 'error' ? 'bg-rose-950/80 text-rose-300 border border-rose-800/40' :
               'bg-slate-900 text-slate-300 border border-slate-800'

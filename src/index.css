@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+#oneclick-widget-container {
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
 /* Premium styling additions */
 ::-webkit-scrollbar {
   width: 6px;

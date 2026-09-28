@@ -11,9 +11,11 @@ export interface ScannedFieldMetadata {
   surroundingText: string;
   autocomplete: string;
   /** How the control should be filled (combobox search, radio group, etc.) */
-  controlKind?: 'standard' | 'combobox' | 'radio-group' | 'select';
-  /** Radio/checkbox group name */
+  controlKind?: 'standard' | 'combobox' | 'radio-group' | 'checkbox-group' | 'select';
+  /** Radio/checkbox group name or internal group key */
   groupName?: string;
+  /** Visible choices for radios, checkboxes, and selects (helps AI pick options) */
+  optionLabels?: string[];
 }
 
 export interface MatchResult {
@@ -137,10 +139,28 @@ export function matchFieldHeuristically(
   if (fieldType === 'radio' && field.controlKind !== 'radio-group') {
     return null;
   }
-  if (fieldType === 'checkbox' && label.length > 0 && label.length < 24) {
+  if (
+    fieldType === 'checkbox' &&
+    field.controlKind !== 'checkbox-group' &&
+    label.length > 0 &&
+    label.length < 24
+  ) {
     const optionLike = ['male', 'female', 'other', 'yes', 'no', 'true', 'false'];
     if (optionLike.includes(label)) {
       return null;
+    }
+  }
+
+  if (field.controlKind === 'checkbox-group') {
+    const groupText = normalizeFieldText(
+      `${field.label} ${field.surroundingText} ${field.placeholder}`
+    );
+    if (groupText.includes('skill') && profile.professional.skills?.trim()) {
+      return {
+        fieldPath: 'professional.skills',
+        confidence: 0.86,
+        matchedValue: profile.professional.skills.trim(),
+      };
     }
   }
 
@@ -384,9 +404,10 @@ export const AI_GENERATED_FIELD_PATH = 'ai.generated';
 const GEMINI_BATCH_SIZE = 18;
 
 const GEMINI_MODEL_FALLBACKS = [
+  'gemini-2.5-flash',
   'gemini-2.0-flash',
-  'gemini-1.5-flash',
   'gemini-2.0-flash-lite',
+  'gemini-1.5-flash',
   'gemini-1.5-pro',
 ];
 
@@ -420,6 +441,23 @@ function buildProfileSchema(profile: UserProfile) {
   };
 }
 
+function parseJsonLoose(text: string): unknown {
+  const cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+  if (!cleaned) {
+    throw new Error('Gemini returned empty response body');
+  }
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      return JSON.parse(cleaned.slice(start, end + 1));
+    }
+    throw new Error('Gemini returned invalid JSON');
+  }
+}
+
 async function callGeminiJsonOnce<T>(
   apiKey: string,
   modelName: string,
@@ -431,7 +469,10 @@ async function callGeminiJsonOnce<T>(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: 'application/json' },
+      generationConfig: {
+        responseMimeType: 'application/json',
+        temperature: 0.2,
+      },
     }),
   });
 
@@ -441,9 +482,13 @@ async function callGeminiJsonOnce<T>(
   }
 
   const data = await response.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
-  return JSON.parse(cleaned) as T;
+  const candidate = data.candidates?.[0];
+  const text = candidate?.content?.parts?.[0]?.text || '';
+  if (!text) {
+    const reason = candidate?.finishReason || data.promptFeedback?.blockReason || 'unknown';
+    throw new Error(`Gemini returned no text (finishReason: ${reason})`);
+  }
+  return parseJsonLoose(text) as T;
 }
 
 async function callGeminiJson<T>(
@@ -459,7 +504,13 @@ async function callGeminiJson<T>(
     } catch (error) {
       lastError = error;
       const msg = String(error);
-      if (!msg.includes('404') && !msg.includes('400') && !msg.includes('403')) {
+      const retryable =
+        msg.includes('404') ||
+        msg.includes('400') ||
+        msg.includes('403') ||
+        msg.includes('invalid JSON') ||
+        msg.includes('empty response');
+      if (!retryable) {
         break;
       }
     }
@@ -478,6 +529,7 @@ function fieldSummary(fields: ScannedFieldMetadata[]) {
     name: f.htmlName,
     id: f.htmlId,
     surroundingText: f.surroundingText,
+    optionLabels: f.optionLabels?.length ? f.optionLabels : undefined,
   }));
 }
 
@@ -519,6 +571,147 @@ type GeminiFieldResolution = {
   confidence?: number;
 };
 
+const GEMINI_RESPONSE_WRAPPER_KEYS = ['results', 'fields', 'responses', 'data', 'mappings'];
+
+function isChoiceControlField(field: ScannedFieldMetadata): boolean {
+  const type = (field.type || '').toLowerCase();
+  const kind = field.controlKind;
+  return (
+    kind === 'radio-group' ||
+    kind === 'checkbox-group' ||
+    kind === 'select' ||
+    type === 'select' ||
+    type === 'radio-group' ||
+    type === 'checkbox-group' ||
+    type === 'radio' ||
+    type === 'checkbox'
+  );
+}
+
+function normalizeGeminiFieldMap(
+  raw: unknown,
+  batchScanIds: Set<string>
+): Record<string, GeminiFieldResolution> {
+  const out: Record<string, GeminiFieldResolution> = {};
+
+  const assign = (scanId: string, resolution: GeminiFieldResolution) => {
+    if (!batchScanIds.has(scanId)) return;
+    if (!out[scanId]) {
+      out[scanId] = resolution;
+    }
+  };
+
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (!item || typeof item !== 'object') continue;
+      const rec = item as GeminiFieldResolution & { scanId?: string };
+      if (rec.scanId && typeof rec.scanId === 'string') {
+        assign(rec.scanId, rec);
+      }
+    }
+    return out;
+  }
+
+  if (!raw || typeof raw !== 'object') {
+    return out;
+  }
+
+  let obj = raw as Record<string, unknown>;
+  for (const wrap of GEMINI_RESPONSE_WRAPPER_KEYS) {
+    const nested = obj[wrap];
+    if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+      obj = nested as Record<string, unknown>;
+      break;
+    }
+  }
+
+  for (const [key, val] of Object.entries(obj)) {
+    if (!val || typeof val !== 'object') continue;
+    const resolution = val as GeminiFieldResolution;
+    if (batchScanIds.has(key)) {
+      assign(key, resolution);
+      continue;
+    }
+    const exact = [...batchScanIds].find((id) => id === key.trim());
+    if (exact) {
+      assign(exact, resolution);
+      continue;
+    }
+    const partial = [...batchScanIds].find((id) => key.includes(id) || id.includes(key));
+    if (partial) {
+      assign(partial, resolution);
+    }
+  }
+
+  return out;
+}
+
+function inferGeminiStrategy(resolution: GeminiFieldResolution): 'profile' | 'generate' | 'skip' {
+  if (resolution.strategy === 'profile' || resolution.strategy === 'generate' || resolution.strategy === 'skip') {
+    return resolution.strategy;
+  }
+  if (resolution.answer?.trim()) return 'generate';
+  if (resolution.fieldPath?.trim()) return 'profile';
+  return 'skip';
+}
+
+function effectiveGeminiConfidence(
+  resolution: GeminiFieldResolution,
+  strategy: 'profile' | 'generate' | 'skip',
+  hasFillValue: boolean
+): number {
+  if (typeof resolution.confidence === 'number' && resolution.confidence > 0) {
+    return resolution.confidence;
+  }
+  if (strategy === 'skip' || !hasFillValue) return 0;
+  if (strategy === 'generate') return 0.78;
+  if (strategy === 'profile') return 0.82;
+  return 0;
+}
+
+function resolutionToMatchResult(
+  resolution: GeminiFieldResolution,
+  profile: UserProfile,
+  field: ScannedFieldMetadata | undefined
+): MatchResult | null {
+  const strategy = inferGeminiStrategy(resolution);
+  if (strategy === 'skip') return null;
+
+  const choiceField = field ? isChoiceControlField(field) : false;
+  const answerText = resolution.answer?.trim() || '';
+
+  if (strategy === 'profile' && resolution.fieldPath) {
+    let val = getProfileValueByPath(profile, resolution.fieldPath);
+    if (choiceField && answerText) {
+      val = answerText;
+    } else if (!val && answerText) {
+      val = answerText;
+    }
+    if (!val) return null;
+    const conf = effectiveGeminiConfidence(resolution, strategy, Boolean(val));
+    if (conf < 0.35) return null;
+    return {
+      fieldPath: resolution.fieldPath,
+      confidence: conf,
+      matchedValue: val,
+    };
+  }
+
+  if (strategy === 'generate') {
+    const generated = answerText;
+    if (!generated) return null;
+    const conf = effectiveGeminiConfidence(resolution, strategy, true);
+    if (conf < 0.35) return null;
+    return {
+      fieldPath: AI_GENERATED_FIELD_PATH,
+      confidence: conf,
+      matchedValue: generated,
+    };
+  }
+
+  return null;
+}
+
 // Map unmatched fields to profile paths OR generate tailored answers (open questions).
 export async function resolveUnmatchedFieldsWithGemini(
   fields: ScannedFieldMetadata[],
@@ -537,10 +730,14 @@ export async function resolveUnmatchedFieldsWithGemini(
   const includeProfileMapping = options.includeProfileMapping !== false;
   const includeGeneratedAnswers = options.includeGeneratedAnswers !== false;
   const jobDescription = options.jobDescription?.trim() || '';
+  let lastBatchError: unknown;
 
   for (const batch of chunkFields(fields)) {
     const fillable = batch.filter((f) => f.type !== 'file');
     if (fillable.length === 0) continue;
+
+    const batchScanIds = new Set(fillable.map((f) => f.scanId));
+    const scanIdList = [...batchScanIds].join(', ');
 
     const prompt = `You autofill job application forms for a candidate.
 
@@ -553,64 +750,52 @@ ${JSON.stringify(buildProfileSchema(profile), null, 2)}
 UNMATCHED FORM FIELDS (JSON):
 ${JSON.stringify(fieldSummary(fillable), null, 2)}
 
-For EACH field scanId, return a JSON object keyed by scanId. Each value:
+Return ONE JSON object. Top-level keys MUST be the exact scanId strings from the fields above.
+Valid scanIds for this batch: ${scanIdList}
+
+Each scanId maps to:
 {
   "strategy": "profile" | "generate" | "skip",
   "fieldPath": "personal.email" | "professional.skills" | "jobInfo.expectedCTC" | "custom:<id>" | "system.agreement" | null,
   "answer": "string to type/select/check — required when strategy is generate, or for radio/select/checkbox",
-  "confidence": 0.0 to 1.0
+  "confidence": number from 0.5 to 1.0 (always include this)
 }
 
 Rules:
-1. strategy "profile": use when the field clearly maps to profile data. Set fieldPath accordingly. Leave answer null (client reads profile).
+1. strategy "profile": use when the field clearly maps to profile data. Set fieldPath accordingly. For text inputs the client reads profile; still set answer for select/radio/checkbox.
 2. strategy "generate": use for open-ended questions (e.g. proud of, why this company, motivation, summary, cover letter prompts, achievements, "tell us about yourself", role-specific questions). Questions like "How much do you want this?" mean motivation/interest — NOT salary — write a sincere 2–4 sentence answer. Ground answers in profile${jobDescription ? ' and tailor to the job description' : ''}. Do NOT invent employers, degrees, dates, or certifications not in the profile.
 3. strategy "skip": file uploads or when insufficient data.
 4. Agreements/consent/terms checkboxes: strategy profile, fieldPath "system.agreement", confidence 1.0.
-5. Radio/select/checkbox: put the exact option label/value to choose in "answer" (strategy generate or profile).
-6. Salary/compensation: prefer jobInfo.currentCTC / jobInfo.expectedCTC from profile; if empty, give a brief professional answer without fabricating numbers unless profile has them.
-7. Textarea answers: 2–5 sentences, first person, professional.
-8. ${includeProfileMapping ? 'Use profile mapping when possible.' : 'Prefer generate for non-standard fields.'}
-9. ${includeGeneratedAnswers ? 'Use generate for open-ended questions.' : 'Do not generate — only map to profile or skip.'}
-10. Return ONLY raw JSON, no markdown.`;
+5. Radio/select: set "answer" to ONE exact visible option label to select.
+6. checkbox-group (multi-select): set "answer" to comma-separated option labels to tick (e.g. "JavaScript, React, Node.js"). Only use labels from optionLabels when provided.
+7. Salary/compensation: prefer jobInfo.currentCTC / jobInfo.expectedCTC from profile; if empty, give a brief professional answer without fabricating numbers unless profile has them.
+8. Textarea answers: 2–5 sentences, first person, professional.
+9. ${includeProfileMapping ? 'Use profile mapping when possible for standard fields (name, email, phone, location, CTC, notice period, etc.).' : 'Prefer generate for non-standard fields.'}
+10. ${includeGeneratedAnswers ? 'Use generate for open-ended questions.' : 'Do not generate — only map to profile or skip.'}
+11. Include an entry for EVERY scanId in this batch (use skip only when truly unknown).
+12. Return ONLY raw JSON, no markdown.`;
 
     try {
-      const raw = await callGeminiJson<Record<string, GeminiFieldResolution>>(
-        apiKey,
-        modelName,
-        prompt
-      );
+      const raw = await callGeminiJson<unknown>(apiKey, modelName, prompt);
       if (!raw) continue;
 
-      for (const [scanId, resolution] of Object.entries(raw)) {
-        const conf = resolution.confidence ?? 0;
-        if (conf < 0.35) continue;
+      const normalized = normalizeGeminiFieldMap(raw, batchScanIds);
+      const fieldByScanId = new Map(fillable.map((f) => [f.scanId, f]));
 
-        const strategy = resolution.strategy || 'skip';
-        if (strategy === 'skip') continue;
-
-        if (strategy === 'profile' && resolution.fieldPath) {
-          const val = getProfileValueByPath(profile, resolution.fieldPath);
-          const finalVal = val || resolution.answer || '';
-          if (!finalVal) continue;
-          results[scanId] = {
-            fieldPath: resolution.fieldPath,
-            confidence: conf,
-            matchedValue: finalVal,
-          };
-          continue;
-        }
-
-        if (strategy === 'generate' && resolution.answer?.trim()) {
-          results[scanId] = {
-            fieldPath: AI_GENERATED_FIELD_PATH,
-            confidence: conf,
-            matchedValue: resolution.answer.trim(),
-          };
+      for (const [scanId, resolution] of Object.entries(normalized)) {
+        const match = resolutionToMatchResult(resolution, profile, fieldByScanId.get(scanId));
+        if (match) {
+          results[scanId] = match;
         }
       }
     } catch (error) {
       console.error('Gemini resolveUnmatchedFields error:', error);
+      lastBatchError = error;
     }
+  }
+
+  if (Object.keys(results).length === 0 && lastBatchError) {
+    throw lastBatchError;
   }
 
   return results;

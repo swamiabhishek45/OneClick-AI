@@ -10,6 +10,26 @@ export function normalizeForMatch(text: string): string {
     .trim();
 }
 
+const OPTION_SYNONYMS: Record<string, string[]> = {
+  yes: ['yes', 'y', 'true', 'agree', 'accepted', 'authorized', 'authorised'],
+  no: ['no', 'n', 'false', 'decline', 'disagree', 'not authorized', 'not authorised'],
+  male: ['male', 'm', 'man'],
+  female: ['female', 'f', 'woman'],
+  other: ['other', 'non binary', 'nonbinary', 'prefer not', 'decline to state'],
+  india: ['india', 'ind', 'in'],
+  remote: ['remote', 'work from home', 'wfh', 'hybrid remote'],
+};
+
+function expandSynonyms(normalized: string): string[] {
+  const out = new Set<string>([normalized]);
+  for (const [, variants] of Object.entries(OPTION_SYNONYMS)) {
+    if (variants.some((v) => v === normalized || normalized.includes(v) || v.includes(normalized))) {
+      variants.forEach((v) => out.add(v));
+    }
+  }
+  return [...out];
+}
+
 /** Score how well `candidate` matches desired `target` (0–1). */
 export function scoreOptionMatch(candidate: string, target: string): number {
   const c = normalizeForMatch(candidate);
@@ -17,6 +37,15 @@ export function scoreOptionMatch(candidate: string, target: string): number {
   if (!c || !t) return 0;
   if (c === t) return 1;
   if (c.includes(t) || t.includes(c)) return 0.92;
+
+  const cSyns = expandSynonyms(c);
+  const tSyns = expandSynonyms(t);
+  for (const cs of cSyns) {
+    for (const ts of tSyns) {
+      if (cs === ts) return 0.96;
+      if (cs.includes(ts) || ts.includes(cs)) return 0.9;
+    }
+  }
 
   const cWords = c.split(' ').filter((w) => w.length > 2);
   const tWords = t.split(' ').filter((w) => w.length > 2);
@@ -27,6 +56,26 @@ export function scoreOptionMatch(candidate: string, target: string): number {
     if (cWords.some((cw) => cw.includes(tw) || tw.includes(cw))) hits++;
   }
   return hits / Math.max(tWords.length, 1);
+}
+
+/** Split profile / AI values into multiple checkbox selections. */
+export function parseMultiSelectValue(value: string): string[] {
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.map((v) => String(v).trim()).filter(Boolean);
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+  return trimmed
+    .split(/[,;|]|\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 function collectNodesDeep(root: Node, selector: string): HTMLElement[] {
@@ -66,6 +115,7 @@ export function queryDropdownOptions(anchor?: HTMLElement): HTMLElement[] {
   const selectors = [
     '[role="option"]',
     '[role="menuitem"]',
+    '[role="menuitemradio"]',
     'li.select2-results__option',
     '.MuiAutocomplete-option',
     'mat-option',
@@ -73,6 +123,7 @@ export function queryDropdownOptions(anchor?: HTMLElement): HTMLElement[] {
     '.autocomplete-item',
     '.pac-item',
     'ul[role="listbox"] li',
+    '.rc-virtual-list-holder-inner [role="option"]',
   ];
 
   const seen = new Set<HTMLElement>();

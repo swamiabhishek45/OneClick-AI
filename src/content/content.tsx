@@ -22,6 +22,8 @@ function initWidget() {
 
   const hostDiv = document.createElement('div');
   hostDiv.id = 'oneclick-autofill-root';
+  hostDiv.style.cssText =
+    'position: fixed; inset: 0; z-index: 2147483646; pointer-events: none; overflow: visible;';
 
   const shadowRoot = hostDiv.attachShadow({ mode: 'open' });
 
@@ -32,6 +34,7 @@ function initWidget() {
 
   const container = document.createElement('div');
   container.id = 'oneclick-widget-container';
+  container.style.pointerEvents = 'auto';
   shadowRoot.appendChild(container);
 
   document.body.appendChild(hostDiv);

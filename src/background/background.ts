@@ -28,6 +28,7 @@ import {
   resolveUnmatchedFieldsWithGemini,
   getProfileValueByPath,
   isOpenEndedQuestionField,
+  AI_GENERATED_FIELD_PATH,
   MatchResult,
   ScannedFieldMetadata,
 } from '../shared/ai';
@@ -384,11 +385,32 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
           }
         }
 
+        // Long-form fields need generated answers — drop short heuristic keyword hits (e.g. "experience" → "1+").
+        for (const field of fields) {
+          const type = (field.type || '').toLowerCase();
+          if (type !== 'textarea' && type !== 'contenteditable' && type !== 'textbox') {
+            continue;
+          }
+          const existing = matches[field.scanId];
+          if (!existing?.matchedValue?.trim()) continue;
+          if (
+            existing.fieldPath === AI_GENERATED_FIELD_PATH ||
+            existing.fieldPath.startsWith('custom:')
+          ) {
+            continue;
+          }
+          delete matches[field.scanId];
+        }
+
         const stillUnmatched = fields.filter((f) => !matches[f.scanId]?.matchedValue?.trim());
         const provider = settings.ai.provider;
         const hasApiKey = Boolean(apiKey);
+        const hasNonOpenEndedGaps = stillUnmatched.some((f) => !isOpenEndedQuestionField(f));
         const wantsGeminiMapping =
-          hasApiKey && (provider === 'hybrid' || provider === 'gemini');
+          hasApiKey &&
+          (provider === 'hybrid' ||
+            provider === 'gemini' ||
+            (provider === 'heuristic' && hasNonOpenEndedGaps));
         const wantsGeminiAnswers =
           hasApiKey && settings.ai.answerOpenQuestions !== false;
 
