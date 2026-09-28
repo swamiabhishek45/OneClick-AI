@@ -320,7 +320,6 @@ const DEFAULT_SETTINGS: AppSettings = {
     useJobDescriptionContext: true,
   },
   theme: 'light',
-  keyboardShortcut: 'Alt+Shift+F',
   globalEnabled: true,
 };
 

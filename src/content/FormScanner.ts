@@ -127,7 +127,9 @@ export function scanFormFields(root: Element | Document = document): {
             ? findRadioGroupLabel(el as HTMLInputElement)
             : isCheckboxGroup
               ? findCheckboxGroupLabel(el as HTMLInputElement, checkboxGroupKey!)
-              : findLabel(el);
+              : type === 'file'
+                ? findFileInputLabel(el as HTMLInputElement)
+                : findLabel(el);
           const surrounding = getSurroundingContext(el);
 
           let controlKind: ScannedFieldMetadata['controlKind'] = 'standard';
@@ -421,6 +423,28 @@ function getCustomRoleOptionText(el: HTMLElement): string {
     el.textContent?.replace(/\s+/g, ' ').trim() ||
     ''
   );
+}
+
+function findFileInputLabel(input: HTMLInputElement): string {
+  const fromLabel = findLabel(input);
+  if (fromLabel.trim()) return fromLabel;
+
+  const container = input.closest(
+    'div, fieldset, li, td, section, form, [class*="field"], [class*="question"], [class*="attachment"]'
+  );
+  if (container) {
+    const trigger = container.querySelector(
+      'button, a, [role="button"], label, span, p'
+    ) as HTMLElement | null;
+    if (trigger && !trigger.contains(input) && trigger !== input) {
+      const text = trigger.textContent?.replace(/\s+/g, ' ').trim();
+      if (text && text.length >= 4 && text.length <= 120) {
+        return text;
+      }
+    }
+  }
+
+  return fromLabel;
 }
 
 function findLabel(input: HTMLElement): string {

@@ -15,16 +15,11 @@ export function ExtensionLogo({
   const file = variant === 'full' ? 'icon.png' : 'logo-mark.png';
   const src = getExtensionURL(file) ?? file;
 
-  const fitClass =
-    variant === 'mark'
-      ? 'object-contain bg-cream'
-      : 'object-cover object-center';
-
   return (
     <img
       src={src}
       alt={alt}
-      className={`${className} ${fitClass} shrink-0`}
+      className={`${className} object-contain object-center shrink-0 max-h-full max-w-full`}
       draggable={false}
     />
   );

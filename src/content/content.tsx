@@ -5,6 +5,7 @@ import { scanFormFields, findLoginFields } from './FormScanner';
 import { extractJobDescription } from './JobDescriptionScanner';
 import { fillFormFields, fillFormFieldsAsync, isFieldEmpty } from './AutofillEngine';
 import { AI_GENERATED_FIELD_PATH, AUTO_FILL_CONFIDENCE_THRESHOLD } from '../shared/ai';
+import { isDefaultResumeMatchValue } from '../shared/resumeAutofill';
 import { DomainRule } from '../shared/types';
 import {
   addExtensionMessageListener,
@@ -240,6 +241,30 @@ async function runAutofill(options: {
 
     const fillPayload: { element: HTMLElement; value: string; controlKind?: string }[] = [];
     const minConfidence = manual ? 0.4 : AUTO_FILL_CONFIDENCE_THRESHOLD;
+    let cachedResumePayloadJson: string | null = null;
+
+    const resolveFillValue = async (match: {
+      fieldPath: string;
+      matchedValue: string;
+    }): Promise<string | null> => {
+      if (
+        match.fieldPath !== 'system.resume' &&
+        !isDefaultResumeMatchValue(match.matchedValue)
+      ) {
+        return match.matchedValue;
+      }
+      if (match.matchedValue.startsWith('{') && match.matchedValue.includes('base64Data')) {
+        return match.matchedValue;
+      }
+      if (!cachedResumePayloadJson) {
+        const resumeResponse = await sendExtensionMessage<{
+          resume?: { fileName: string; fileType: string; base64Data: string };
+        }>({ action: 'getDefaultResume' });
+        if (!resumeResponse?.resume?.base64Data) return null;
+        cachedResumePayloadJson = JSON.stringify(resumeResponse.resume);
+      }
+      return cachedResumePayloadJson;
+    };
 
     for (const el of eligibleElements) {
       const scanId = el.getAttribute('data-autofill-scan-id');
@@ -251,10 +276,13 @@ async function runAutofill(options: {
         match.fieldPath === AI_GENERATED_FIELD_PATH ? 0.35 : minConfidence;
       if (match.confidence < minForField) continue;
 
+      const fillValue = await resolveFillValue(match);
+      if (!fillValue) continue;
+
       const meta = eligibleMetadata.find((m) => m.scanId === scanId);
       fillPayload.push({
         element: el,
-        value: match.matchedValue,
+        value: fillValue,
         controlKind: meta?.controlKind,
       });
 
@@ -263,7 +291,7 @@ async function runAutofill(options: {
       filledFieldsMap.set(el, {
         label: labelText,
         fieldPath: match.fieldPath,
-        originalValue: match.matchedValue,
+        originalValue: fillValue,
       });
 
       if (

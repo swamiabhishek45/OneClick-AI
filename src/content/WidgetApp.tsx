@@ -514,7 +514,7 @@ export default function WidgetApp() {
 
   return (
     <div
-      className="fixed z-[9999999] select-none font-sans ui-page antialiased"
+      className="fixed z-[9999999] select-none font-sans antialiased text-brand-900 bg-transparent"
       style={{
         top: `${anchorPosition.top}px`,
         right: `${anchorPosition.right}px`,
@@ -532,12 +532,12 @@ export default function WidgetApp() {
               openPanel();
             }
           }}
-          className={`flex h-[52px] w-[52px] items-center justify-center rounded-full overflow-hidden shadow-lg shadow-brand-600/30 transition-transform active:scale-95 cursor-pointer hover:shadow-brand-600/45 hover:brightness-105 border-2 border-brand-600/35 bg-cream ${
-            isFilling ? 'animate-pulse opacity-80' : 'hover:scale-105'
+          className={`flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-full overflow-hidden shadow-lg shadow-brand-600/25 transition-shadow active:scale-95 cursor-pointer hover:shadow-brand-600/40 border-2 border-brand-600/35 bg-cream ${
+            isFilling ? 'animate-pulse opacity-80' : ''
           }`}
           title="OneClick Autofill AI"
         >
-          <ExtensionLogo variant="full" className="h-12 w-12" />
+          <ExtensionLogo variant="mark" className="h-[78%] w-[78%] pointer-events-none" />
         </button>
       )}
 
@@ -676,7 +676,7 @@ export default function WidgetApp() {
       {expanded && (
         <div
           ref={panelRef}
-          className="rounded-2xl ui-panel p-4 sm:p-5 shadow-2xl backdrop-blur-md flex flex-col gap-4 sm:gap-5 box-border dark:bg-brand-900/95"
+          className="rounded-2xl overflow-hidden bg-cream border border-brand-800/20 p-4 sm:p-5 shadow-2xl flex flex-col gap-4 sm:gap-5 box-border dark:bg-brand-900 dark:border-brand-600/25"
           style={{
             width: panelWidth,
             maxHeight: panelMaxHeight,
@@ -690,7 +690,9 @@ export default function WidgetApp() {
             onMouseDown={handlePanelHeaderMouseDown}
           >
             <div className="flex items-center gap-2.5 min-w-0">
-              <ExtensionLogo variant="mark" className="h-8 w-8 rounded-md shrink-0" />
+              <div className="h-8 w-8 shrink-0 rounded-lg overflow-hidden flex items-center justify-center bg-cream border border-brand-800/10">
+                <ExtensionLogo variant="mark" className="h-[85%] w-[85%]" />
+              </div>
               <span className="font-semibold text-base leading-tight tracking-wide text-brand-800 truncate">
                 OneClick Autofill AI
               </span>

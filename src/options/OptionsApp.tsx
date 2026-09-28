@@ -296,7 +296,7 @@ export default function OptionsApp() {
           id: Math.random().toString(36).substring(2),
           name: file.name.split('.')[0],
           fileName: file.name,
-          fileType: file.name.split('.').pop() || 'pdf',
+          fileType: (file.name.split('.').pop() || 'pdf').toLowerCase(),
           base64Data,
           uploadedAt: new Date().toISOString(),
           isDefault: resumes.length === 0
@@ -431,41 +431,6 @@ export default function OptionsApp() {
     }
   };
 
-  const handleExportData = () => {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ profiles, resumes, templates, manualMappings, appSettings }));
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", "oneclick_autofill_backup.json");
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-  };
-
-  const handleImportData = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const data = JSON.parse(reader.result as string);
-        if (data.profiles && Array.isArray(data.profiles)) {
-          for (const p of data.profiles) {
-            await saveProfile(p);
-          }
-        }
-        if (data.appSettings) {
-          await saveAppSettings(data.appSettings);
-        }
-        showStatus("Data imported successfully!");
-        loadAllData();
-      } catch (err) {
-        showStatus("Invalid backup file", "error");
-      }
-    };
-    reader.readAsText(file);
-  };
-
   return (
     <div className="flex h-screen ui-page overflow-hidden font-sans">
       {/* Sidebar Panel */}
@@ -473,8 +438,8 @@ export default function OptionsApp() {
         <div>
           {/* Logo Branding */}
           <div className="p-6 flex items-center gap-2.5 border-b border-brand-800/15">
-            <div className="h-9 w-9 rounded-xl overflow-hidden shadow-lg shadow-brand-500/20 ring-1 ring-brand-500/25 shrink-0">
-              <ExtensionLogo variant="mark" className="h-9 w-9" />
+            <div className="h-9 w-9 shrink-0 rounded-xl overflow-hidden flex items-center justify-center bg-cream border border-brand-800/15 dark:bg-brand-800 dark:border-brand-600/30">
+              <ExtensionLogo variant="mark" className="h-[85%] w-[85%]" />
             </div>
             <div>
               <h1 className="font-bold text-sm text-brand-800 tracking-wide">OneClick AI</h1>
@@ -1100,7 +1065,12 @@ export default function OptionsApp() {
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div 
-                  onClick={() => setAppSettingsState({ ...appSettings, ai: { ...appSettings.ai, provider: 'heuristic' } })}
+                  onClick={() =>
+                    setAppSettingsState({
+                      ...appSettings,
+                      ai: { ...appSettings.ai, provider: 'heuristic', answerOpenQuestions: false },
+                    })
+                  }
                   className={`p-4 rounded-xl border cursor-pointer transition flex flex-col gap-1.5 ${
                     appSettings.ai.provider === 'heuristic' 
                       ? 'bg-brand-600/10 border-brand-500/40 text-brand-700' 
@@ -1108,7 +1078,7 @@ export default function OptionsApp() {
                   }`}
                 >
                   <p className="text-xs font-semibold text-brand-800">Offline only</p>
-                  <p className="text-[10px] text-brand-700/60 leading-relaxed">Local keyword matching. Optional Gemini API key still enables AI-written answers for open questions only.</p>
+                  <p className="text-[10px] text-brand-700/60 leading-relaxed">Local keyword and custom-field matching only. No Gemini API calls.</p>
                 </div>
 
                 <div 
@@ -1204,63 +1174,21 @@ export default function OptionsApp() {
                 <h3 className="text-xs font-bold uppercase tracking-wider text-brand-700">General Preferences</h3>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[10px] font-semibold text-brand-700/70 uppercase mb-1">Theme</label>
-                  <select
-                    value={appSettings.theme}
-                    onChange={(e) => {
-                      const theme = e.target.value as AppSettingsType['theme'];
-                      setAppSettingsState({ ...appSettings, theme });
-                      applyThemeSetting(theme);
-                    }}
-                    className="w-full ui-input rounded-lg p-2 text-xs"
-                  >
-                    <option value="light">Light theme</option>
-                    <option value="dark">Dark theme</option>
-                    <option value="system">Match system</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[10px] font-semibold text-brand-700/70 uppercase mb-1">Keyboard Trigger</label>
-                  <input
-                    type="text"
-                    value={appSettings.keyboardShortcut}
-                    onChange={(e) => setAppSettingsState({ ...appSettings, keyboardShortcut: e.target.value })}
-                    className="w-full bg-white border border-brand-800/20 rounded-lg p-2 text-xs focus:outline-none focus:border-brand-500 text-brand-800"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Export & Import Backup */}
-            <div className="ui-panel p-5 rounded-2xl flex flex-col gap-4">
-              <div className="flex items-center gap-2 border-b border-brand-800/15/50 pb-2">
-                <HardDriveDownload className="w-4.5 h-4.5 text-brand-400" />
-                <h3 className="text-xs font-bold uppercase tracking-wider text-brand-700">Data Export / Backup</h3>
-              </div>
-
-              <div className="flex items-center gap-4">
-                <button
-                  onClick={handleExportData}
-                  className="bg-white border border-brand-800/15 hover:bg-brand-900/8 text-brand-800 py-2 px-4 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1.5"
+              <div>
+                <label className="block text-[10px] font-semibold text-brand-700/70 uppercase mb-1">Theme</label>
+                <select
+                  value={appSettings.theme}
+                  onChange={(e) => {
+                    const theme = e.target.value as AppSettingsType['theme'];
+                    setAppSettingsState({ ...appSettings, theme });
+                    applyThemeSetting(theme);
+                  }}
+                  className="w-full max-w-xs ui-input rounded-lg p-2 text-xs"
                 >
-                  Export Local Backup
-                </button>
-                
-                <div className="relative">
-                  <button
-                    className="bg-white border border-brand-800/15 hover:bg-brand-900/8 text-brand-800 py-2 px-4 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1.5"
-                  >
-                    Import Backup file
-                  </button>
-                  <input
-                    type="file"
-                    accept=".json"
-                    onChange={handleImportData}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                  />
-                </div>
+                  <option value="light">Light theme</option>
+                  <option value="dark">Dark theme</option>
+                  <option value="system">Match system</option>
+                </select>
               </div>
             </div>
 

@@ -39,16 +39,42 @@ def center_square_crop(img: Image.Image, vertical_bias: float = 0.42) -> Image.I
     return img.crop((left, top, left + side, top + side))
 
 
-def fit_on_canvas(square: Image.Image, size: int, padding_ratio: float = 0.08) -> Image.Image:
+def fit_on_canvas(
+    square: Image.Image,
+    size: int,
+    padding_ratio: float = 0.08,
+    *,
+    background: tuple[int, int, int, int] = (226, 245, 182, 255),
+) -> Image.Image:
     pad = max(1, int(size * padding_ratio))
     inner = size - 2 * pad
     resized = square.copy()
     resized.thumbnail((inner, inner), Image.Resampling.LANCZOS)
-    canvas = Image.new("RGBA", (size, size), (226, 245, 182, 255))  # #E2F5B6
+    canvas = Image.new("RGBA", (size, size), background)
     ox = (size - resized.width) // 2
     oy = (size - resized.height) // 2
     canvas.paste(resized, (ox, oy), resized)
     return canvas
+
+
+def knock_out_cream(img: Image.Image, tolerance: int = 22) -> Image.Image:
+    """Make brand cream pixels transparent so UI marks don't show a square box."""
+    out = img.convert("RGBA")
+    px = out.load()
+    cream = (226, 245, 182)
+    w, h = out.size
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = px[x, y]
+            if a == 0:
+                continue
+            if (
+                abs(r - cream[0]) <= tolerance
+                and abs(g - cream[1]) <= tolerance
+                and abs(b - cream[2]) <= tolerance
+            ):
+                px[x, y] = (r, g, b, 0)
+    return out
 
 
 def main() -> None:
@@ -62,18 +88,23 @@ def main() -> None:
     square = center_square_crop(source)
     ICONS.mkdir(parents=True, exist_ok=True)
 
-    outputs = {
-        PUBLIC / "logo-mark.png": 512,
-        PUBLIC / "icon.png": 512,
-        PUBLIC / "favicon.png": 32,
-        ICONS / "16.png": 16,
-        ICONS / "32.png": 32,
-        ICONS / "48.png": 48,
-        ICONS / "128.png": 128,
+    cream = (226, 245, 182, 255)
+    transparent = (0, 0, 0, 0)
+
+    outputs: dict[Path, tuple[int, tuple[int, int, int, int]]] = {
+        PUBLIC / "logo-mark.png": (512, transparent),
+        PUBLIC / "icon.png": (512, cream),
+        PUBLIC / "favicon.png": (32, cream),
+        ICONS / "16.png": (16, cream),
+        ICONS / "32.png": (32, cream),
+        ICONS / "48.png": (48, cream),
+        ICONS / "128.png": (128, cream),
     }
 
-    for path, size in outputs.items():
-        out = fit_on_canvas(square, size)
+    for path, (size, bg) in outputs.items():
+        out = fit_on_canvas(square, size, background=bg)
+        if path.name == "logo-mark.png":
+            out = knock_out_cream(out)
         out.save(path, optimize=True)
         print(f"Wrote {path.relative_to(ROOT)} ({size}x{size})")
 

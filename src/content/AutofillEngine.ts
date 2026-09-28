@@ -19,6 +19,16 @@ function isFalsey(val: unknown): boolean {
   return s === 'false' || s === '0' || s === 'no' || s === 'n' || s === 'off' || s === 'unchecked';
 }
 
+function resumeMimeType(fileType: string, fileName: string): string {
+  const ext = (fileType || fileName.split('.').pop() || '').toLowerCase();
+  if (ext === 'pdf') return 'application/pdf';
+  if (ext === 'doc') return 'application/msword';
+  if (ext === 'docx') {
+    return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  }
+  return 'application/octet-stream';
+}
+
 function setFileInputValue(
   element: HTMLInputElement,
   base64Data: string,
@@ -26,24 +36,32 @@ function setFileInputValue(
   fileType: string
 ): boolean {
   try {
-    const byteCharacters = atob(base64Data);
+    const normalizedB64 = base64Data.includes(',') ? base64Data.split(',').pop()! : base64Data;
+    const byteCharacters = atob(normalizedB64.replace(/\s/g, ''));
     const byteNumbers = new Array(byteCharacters.length);
     for (let i = 0; i < byteCharacters.length; i++) {
       byteNumbers[i] = byteCharacters.charCodeAt(i);
     }
     const byteArray = new Uint8Array(byteNumbers);
-    const blob = new Blob([byteArray], {
-      type:
-        fileType === 'pdf'
-          ? 'application/pdf'
-          : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    });
-    const file = new File([blob], fileName, { type: blob.type });
+    const mime = resumeMimeType(fileType, fileName);
+    const blob = new Blob([byteArray], { type: mime });
+    const file = new File([blob], fileName, { type: mime, lastModified: Date.now() });
     const dataTransfer = new DataTransfer();
     dataTransfer.items.add(file);
+
+    const wasDisabled = element.disabled;
+    element.disabled = false;
     element.files = dataTransfer.files;
+
+    element.dispatchEvent(new Event('input', { bubbles: true }));
     element.dispatchEvent(new Event('change', { bubbles: true }));
-    return true;
+    element.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true }));
+
+    if (wasDisabled) {
+      element.disabled = true;
+    }
+
+    return Boolean(element.files?.length);
   } catch (err) {
     console.error('Failed to set file input value programmatically:', err);
     return false;

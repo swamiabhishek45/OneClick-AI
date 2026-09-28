@@ -144,6 +144,5 @@ export interface FillHistoryEntry {
 export interface AppSettings {
   ai: AISettings;
   theme: 'light' | 'dark' | 'system';
-  keyboardShortcut: string;
   globalEnabled: boolean;
 }

@@ -1,4 +1,5 @@
 import { UserProfile, AppSettings, LearningMapping } from './types';
+import { DEFAULT_RESUME_MATCH_VALUE, isResumeFileField } from './resumeAutofill';
 
 export interface ScannedFieldMetadata {
   scanId: string; // Internal unique scan ID
@@ -123,6 +124,49 @@ function matchByAutocomplete(field: ScannedFieldMetadata): MatchResult | null {
   return { fieldPath: path, confidence: 0.92, matchedValue: '' };
 }
 
+function matchProfileCustomFields(
+  field: ScannedFieldMetadata,
+  profile: UserProfile
+): MatchResult | null {
+  const label = normalizeFieldText(field.label || '');
+  const placeholder = normalizeFieldText(field.placeholder || '');
+  const ariaLabel = normalizeFieldText(field.ariaLabel || '');
+  const name = normalizeFieldText(field.htmlName || '');
+  const id = normalizeFieldText(field.htmlId || '');
+  const surrounding = normalizeFieldText(field.surroundingText || '');
+  const haystack = `${label} ${placeholder} ${ariaLabel} ${name} ${id} ${surrounding}`;
+
+  for (const cf of profile.customFields) {
+    const value = cf.value?.trim();
+    if (!value) continue;
+
+    const cfName = normalizeFieldText(cf.name);
+    if (!cfName) continue;
+
+    if (haystack.includes(cfName) || cfName.includes(label)) {
+      return { fieldPath: `custom:${cf.id}`, confidence: 0.92, matchedValue: value };
+    }
+
+    const cfWords = cfName.split(/\s+/).filter((w) => w.length >= 3);
+    if (cfWords.length > 0) {
+      const hits = cfWords.filter((word) => haystack.includes(word));
+      const need = cfWords.length === 1 ? 1 : Math.min(2, cfWords.length);
+      if (hits.length >= need) {
+        return { fieldPath: `custom:${cf.id}`, confidence: 0.9, matchedValue: value };
+      }
+    }
+
+    const nameMatch = name.includes(cfName) || (cfName.includes(name) && name.length >= 3);
+    const idMatch = id.includes(cfName) || (cfName.includes(id) && id.length >= 3);
+    const labelMatch = label.includes(cfName) || (cfName.includes(label) && label.length >= 3);
+    if (nameMatch || idMatch || labelMatch || surrounding.includes(cfName)) {
+      return { fieldPath: `custom:${cf.id}`, confidence: 0.88, matchedValue: value };
+    }
+  }
+
+  return null;
+}
+
 // Heuristic matching logic
 export function matchFieldHeuristically(
   field: ScannedFieldMetadata,
@@ -164,6 +208,17 @@ export function matchFieldHeuristically(
         matchedValue: profile.professional.skills.trim(),
       };
     }
+  }
+
+  if (fieldType === 'file') {
+    if (isResumeFileField(field)) {
+      return {
+        fieldPath: 'system.resume',
+        confidence: 0.95,
+        matchedValue: DEFAULT_RESUME_MATCH_VALUE,
+      };
+    }
+    return null;
   }
 
   const autocompleteMatch = matchByAutocomplete(field);
@@ -293,53 +348,12 @@ export function matchFieldHeuristically(
     }
   }
 
-  // 3. Fallback: Check custom fields
-  if (maxConfidence < 0.8) {
-    for (const cf of profile.customFields) {
-      const cfName = cf.name.toLowerCase().trim();
-      if (!cfName) continue;
-
-      // Check for exact/contains matches in label, name, id, surrounding text
-      const nameMatch = name.includes(cfName) || (cfName.includes(name) && name.length >= 3);
-      const idMatch = id.includes(cfName) || (cfName.includes(id) && id.length >= 3);
-      const labelMatch = label.includes(cfName) || (cfName.includes(label) && label.length >= 3);
-      const surroundingMatch = surrounding.includes(cfName);
-
-      // Synonyms / stemming support (e.g. "sponsor" matches "sponsorship", "auth" matches "authorization")
-      let synonymMatch = false;
-      const hasSponsor = cfName.includes('sponsor');
-      const hasAuth = cfName.includes('auth') || cfName.includes('work') || cfName.includes('citizenship') || cfName.includes('legal');
-      const hasGender = cfName.includes('gender') || cfName.includes('sex');
-
-      if (hasSponsor && (name.includes('sponsor') || id.includes('sponsor') || label.includes('sponsor') || surrounding.includes('sponsor'))) {
-        synonymMatch = true;
-      }
-      if (hasAuth && (name.includes('auth') || id.includes('auth') || label.includes('auth') || label.includes('work') || surrounding.includes('auth') || surrounding.includes('work'))) {
-        synonymMatch = true;
-      }
-      if (hasGender && (name.includes('sex') || id.includes('sex') || label.includes('sex') || surrounding.includes('sex') || name.includes('gender') || id.includes('gender') || label.includes('gender') || surrounding.includes('gender'))) {
-        synonymMatch = true;
-      }
-
-      // Word-based partial match (e.g. "visa status" matches "visa")
-      let wordMatch = false;
-      const cfWords = cfName.split(/\s+/).filter(w => w.length >= 4);
-      if (cfWords.length > 0) {
-        for (const word of cfWords) {
-          if (name === word || id === word || label.includes(word) || surrounding.includes(word)) {
-            wordMatch = true;
-            break;
-          }
-        }
-      }
-
-      if (labelMatch || nameMatch || idMatch || surroundingMatch || synonymMatch || wordMatch) {
-        return {
-          fieldPath: `custom:${cf.id}`,
-          confidence: 0.90,
-          matchedValue: cf.value
-        };
-      }
+  // 3. Custom extra fields (also when a keyword matched but profile path is empty, e.g. LinkedIn in custom field only)
+  const keywordVal = bestMatchPath ? getProfileValueByPath(profile, bestMatchPath) : '';
+  if (!keywordVal?.trim()) {
+    const customMatch = matchProfileCustomFields(field, profile);
+    if (customMatch) {
+      return customMatch;
     }
   }
 
@@ -356,29 +370,6 @@ export function matchFieldHeuristically(
         fieldPath: 'system.agreement',
         confidence: 0.85,
         matchedValue: 'true'
-      };
-    }
-  }
-
-  // Check for resume / CV file upload
-  if (field.type === 'file') {
-    const accept = normalizeFieldText(field.inputAccept || '');
-    const blob = `${label} ${placeholder} ${ariaLabel} ${name} ${id} ${surrounding} ${accept}`;
-    const isResumeInput =
-      /\b(resume|résumé|curriculum vitae|\bcv\b|cover letter|upload.*document|attach.*document)\b/i.test(
-        blob
-      ) ||
-      /\.(pdf|doc|docx)\b/i.test(blob) ||
-      name.includes('resume') ||
-      name.includes('cv') ||
-      id.includes('resume') ||
-      id.includes('cv');
-
-    if (isResumeInput) {
-      return {
-        fieldPath: 'system.resume',
-        confidence: 0.95,
-        matchedValue: 'system.resume',
       };
     }
   }

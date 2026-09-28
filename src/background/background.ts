@@ -35,6 +35,34 @@ import {
 import { learnUserCorrection } from '../shared/learning';
 import { UserProfile } from '../shared/types';
 import { createEmptyStarterProfile, DUMMY_DEMO_PROFILE } from '../shared/profileSeeds';
+import {
+  DEFAULT_RESUME_MATCH_VALUE,
+  ResumeFilePayload,
+  scoreResumeFileField,
+} from '../shared/resumeAutofill';
+
+async function loadDefaultResumePayload(): Promise<ResumeFilePayload | null> {
+  const resumes = await getResumes();
+  const defaultResume = resumes.find((r) => r.isDefault) || resumes[0];
+  if (!defaultResume?.base64Data?.trim()) return null;
+  return {
+    fileName: defaultResume.fileName,
+    fileType: defaultResume.fileType,
+    base64Data: defaultResume.base64Data,
+  };
+}
+
+function assignResumeMatch(
+  matches: Record<string, MatchResult>,
+  scanId: string,
+  confidence: number
+): void {
+  matches[scanId] = {
+    fieldPath: 'system.resume',
+    confidence,
+    matchedValue: DEFAULT_RESUME_MATCH_VALUE,
+  };
+}
 
 function getEffectiveGeminiApiKey(settings: { ai: { geminiApiKey?: string } }): string {
   return settings.ai.geminiApiKey?.trim() || '';
@@ -177,6 +205,12 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
         break;
       }
 
+      case 'getDefaultResume': {
+        const resume = await loadDefaultResumePayload();
+        sendResponse({ resume });
+        break;
+      }
+
       // Fields Matcher (incorporates Heuristic + Manual Mappings + website templates + Gemini API)
       case 'matchFields': {
         const fields = message.fields as ScannedFieldMetadata[];
@@ -205,22 +239,14 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
           settings.ai.useJobDescriptionContext !== false && jobDescription.length > 0;
         const jdContext = useJobDescription ? jobDescription : '';
 
+        const defaultResumeReady = Boolean(await loadDefaultResumePayload());
+
         const applyHeuristicMatch = async (field: ScannedFieldMetadata) => {
           const heur = matchFieldHeuristically(field, profile, learningMappings);
           if (!heur) return;
           if (heur.fieldPath === 'system.resume') {
-            const resumes = await getResumes();
-            const defaultResume = resumes.find((r) => r.isDefault) || resumes[0];
-            if (defaultResume) {
-              matches[field.scanId] = {
-                fieldPath: 'system.resume',
-                confidence: 0.95,
-                matchedValue: JSON.stringify({
-                  fileName: defaultResume.fileName,
-                  fileType: defaultResume.fileType,
-                  base64Data: defaultResume.base64Data,
-                }),
-              };
+            if (defaultResumeReady) {
+              assignResumeMatch(matches, field.scanId, heur.confidence);
             }
           } else {
             matches[field.scanId] = heur;
@@ -284,20 +310,18 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
         const unmatchedFileFields = fields.filter(
           (f) => f.type === 'file' && !matches[f.scanId]?.matchedValue?.trim()
         );
-        if (unmatchedFileFields.length === 1) {
-          const resumes = await getResumes();
-          const defaultResume = resumes.find((r) => r.isDefault) || resumes[0];
-          if (defaultResume) {
-            const fileField = unmatchedFileFields[0];
-            matches[fileField.scanId] = {
-              fieldPath: 'system.resume',
-              confidence: 0.88,
-              matchedValue: JSON.stringify({
-                fileName: defaultResume.fileName,
-                fileType: defaultResume.fileType,
-                base64Data: defaultResume.base64Data,
-              }),
-            };
+        if (unmatchedFileFields.length > 0 && defaultResumeReady) {
+          const ranked = unmatchedFileFields
+            .map((f) => ({ field: f, score: scoreResumeFileField(f) }))
+            .sort((a, b) => b.score - a.score);
+          const top = ranked[0];
+          const second = ranked[1];
+          const pick =
+            unmatchedFileFields.length === 1 ||
+            top.score >= 90 ||
+            (top.score >= 50 && (!second || top.score >= second.score + 12));
+          if (pick && top.score >= 35) {
+            assignResumeMatch(matches, top.field.scanId, Math.min(0.95, 0.75 + top.score / 400));
           }
         }
 
@@ -334,16 +358,19 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
         const stillUnmatched = fields.filter((f) => !matches[f.scanId]?.matchedValue?.trim());
         const provider = settings.ai.provider;
         const hasApiKey = Boolean(apiKey);
-        const hasNonOpenEndedGaps = stillUnmatched.some((f) => !isOpenEndedQuestionField(f));
+        const offlineOnly = provider === 'heuristic';
         const wantsGeminiMapping =
+          !offlineOnly &&
           hasApiKey &&
-          (provider === 'hybrid' ||
-            provider === 'gemini' ||
-            (provider === 'heuristic' && hasNonOpenEndedGaps));
+          (provider === 'hybrid' || provider === 'gemini');
         const wantsGeminiAnswers =
-          hasApiKey && settings.ai.answerOpenQuestions !== false;
+          !offlineOnly &&
+          hasApiKey &&
+          settings.ai.answerOpenQuestions !== false;
 
-        if (!hasApiKey && stillUnmatched.some(isOpenEndedQuestionField)) {
+        if (offlineOnly && stillUnmatched.length > 0) {
+          /* No Gemini calls in offline-only mode */
+        } else if (!hasApiKey && stillUnmatched.some(isOpenEndedQuestionField)) {
           geminiWarning =
             'Gemini API key missing. Add your key in Dashboard → Settings & AI.';
         }
