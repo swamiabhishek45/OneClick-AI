@@ -453,7 +453,7 @@ export default function WidgetApp() {
 
   return (
     <div
-      className="fixed z-[9999999] select-none font-sans text-slate-100 antialiased"
+      className="fixed z-[9999999] select-none font-sans text-brand-900 antialiased"
       style={{
         top: `${anchorPosition.top}px`,
         right: `${anchorPosition.right}px`,
@@ -471,7 +471,7 @@ export default function WidgetApp() {
               openPanel();
             }
           }}
-          className={`flex h-[52px] w-[52px] items-center justify-center rounded-full overflow-hidden shadow-lg shadow-brand-500/30 transition-transform active:scale-95 cursor-pointer hover:shadow-brand-500/50 hover:brightness-110 border-2 border-brand-400/40 bg-slate-950 ${
+          className={`flex h-[52px] w-[52px] items-center justify-center rounded-full overflow-hidden shadow-lg shadow-brand-600/30 transition-transform active:scale-95 cursor-pointer hover:shadow-brand-600/45 hover:brightness-105 border-2 border-brand-600/35 bg-cream ${
             isFilling ? 'animate-pulse opacity-80' : 'hover:scale-105'
           }`}
           title="OneClick Autofill AI"
@@ -482,14 +482,14 @@ export default function WidgetApp() {
 
       {/* Manual Mapping Tip Overlay */}
       {isMappingMode && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 flex flex-wrap items-center justify-center gap-2 sm:gap-3 px-4 py-3 rounded-2xl sm:rounded-full bg-slate-900/90 border border-slate-700/80 backdrop-blur-md shadow-xl text-sm font-medium max-w-[calc(100vw-24px)] text-center">
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 flex flex-wrap items-center justify-center gap-2 sm:gap-3 px-4 py-3 rounded-2xl sm:rounded-full bg-cream/95 border border-brand-800/20 backdrop-blur-md shadow-xl text-sm font-medium max-w-[calc(100vw-24px)] text-center text-brand-900">
           <span className="w-2.5 h-2.5 rounded-full bg-brand-500 animate-pulse"></span>
           <span>Click any form input on the page to map it...</span>
           <button 
             onClick={() => setIsMappingMode(false)}
-            className="p-1 rounded-full hover:bg-slate-800 transition"
+            className="p-1 rounded-full hover:bg-brand-900/10 transition"
           >
-            <X className="w-4 h-4 text-slate-400 hover:text-white" />
+            <X className="w-4 h-4 text-brand-700/75 hover:text-brand-900" />
           </button>
         </div>
       )}
@@ -497,32 +497,32 @@ export default function WidgetApp() {
       {/* Manual Mapping Configuration Modal */}
       {selectedElementForMap && (
         <div
-          className="rounded-2xl bg-slate-900/95 border border-slate-700/80 p-4 sm:p-5 shadow-2xl backdrop-blur-md"
+          className="rounded-2xl bg-cream/98 border border-brand-800/20 p-4 sm:p-5 shadow-2xl backdrop-blur-md"
           style={{ width: panelWidth, maxHeight: panelMaxHeight, overflowY: 'auto' }}
         >
           <div className="flex justify-between items-center mb-3">
-            <span className="text-sm font-semibold uppercase tracking-wider text-brand-400">Map Custom Field</span>
+            <span className="text-sm font-semibold uppercase tracking-wider text-brand-700">Map Custom Field</span>
             <button 
               onClick={() => setSelectedElementForMap(null)} 
-              className="text-slate-400 hover:text-white transition"
+              className="text-brand-700/75 hover:text-brand-900 transition"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
-          <p className="text-sm text-slate-400 mb-3 leading-relaxed">
+          <p className="text-sm text-brand-700/75 mb-3 leading-relaxed">
             Selected element:{' '}
-            <code className="bg-slate-800/80 px-1.5 py-0.5 rounded text-indigo-300 font-mono text-xs break-all">
+            <code className="bg-white/90 px-1.5 py-0.5 rounded text-brand-700 font-mono text-xs break-all border border-brand-800/15">
               {selectedElementForMap.tagName.toLowerCase()}
               {selectedElementForMap.id ? `#${selectedElementForMap.id}` : ''}
             </code>
           </p>
 
           <div className="mb-4">
-            <label className="block text-sm font-medium text-slate-300 mb-2">Link to Profile Field</label>
+            <label className="block text-sm font-medium text-brand-800 mb-2">Link to Profile Field</label>
             <select
               value={selectedFieldForMap}
               onChange={(e) => setSelectedFieldForMap(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-brand-500"
+              className="w-full bg-white border border-brand-800/20 rounded-lg px-3 py-2.5 text-sm text-brand-900 focus:outline-none focus:border-brand-600"
             >
               <option value="">-- Choose Field --</option>
               <optgroup label="Personal Information">
@@ -596,7 +596,7 @@ export default function WidgetApp() {
           <div className="flex flex-col sm:flex-row gap-2">
             <button
               onClick={() => setSelectedElementForMap(null)}
-              className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2.5 rounded-lg text-sm font-medium transition cursor-pointer"
+              className="flex-1 bg-white hover:bg-cream-200 text-brand-800 border border-brand-800/20 py-2.5 rounded-lg text-sm font-medium transition cursor-pointer"
             >
               Cancel
             </button>
@@ -615,7 +615,7 @@ export default function WidgetApp() {
       {expanded && (
         <div
           ref={panelRef}
-          className="rounded-2xl bg-slate-950/95 border border-slate-800 p-4 sm:p-5 shadow-2xl backdrop-blur-md flex flex-col gap-4 sm:gap-5 box-border"
+          className="rounded-2xl bg-cream/98 border border-brand-800/20 p-4 sm:p-5 shadow-2xl backdrop-blur-md flex flex-col gap-4 sm:gap-5 box-border"
           style={{
             width: panelWidth,
             maxHeight: panelMaxHeight,
@@ -630,7 +630,7 @@ export default function WidgetApp() {
           >
             <div className="flex items-center gap-2.5 min-w-0">
               <ExtensionLogo className="h-8 w-8 rounded-md shrink-0" />
-              <span className="font-semibold text-base leading-tight tracking-wide bg-gradient-to-r from-brand-400 to-indigo-300 bg-clip-text text-transparent truncate">
+              <span className="font-semibold text-base leading-tight tracking-wide text-brand-800 truncate">
                 OneClick Autofill AI
               </span>
             </div>
@@ -638,14 +638,14 @@ export default function WidgetApp() {
               <button
                 onClick={handleEditProfile}
                 title="Edit profiles"
-                className="p-2 rounded-lg hover:bg-slate-800/80 text-slate-400 hover:text-slate-100 transition cursor-pointer"
+                className="p-2 rounded-lg hover:bg-brand-900/10 text-brand-700/75 hover:text-brand-900 transition cursor-pointer"
               >
                 <Settings className="w-5 h-5" />
               </button>
               <button
                 onClick={minimizePanel}
                 title="Minimize"
-                className="p-2 rounded-lg hover:bg-slate-800/80 text-slate-400 hover:text-slate-100 transition cursor-pointer"
+                className="p-2 rounded-lg hover:bg-brand-900/10 text-brand-700/75 hover:text-brand-900 transition cursor-pointer"
               >
                 <Minimize2 className="w-5 h-5" />
               </button>
@@ -653,12 +653,12 @@ export default function WidgetApp() {
           </div>
 
           {/* Profile Switcher */}
-          <div className="bg-slate-900/60 rounded-xl p-3.5 sm:p-4 border border-slate-800/50">
+          <div className="bg-white/90 rounded-xl p-3.5 sm:p-4 border border-brand-800/15">
             <div className="flex justify-between items-center mb-2.5 gap-2">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Active Profile</span>
+              <span className="text-xs font-semibold text-brand-700/65 uppercase tracking-wider">Active Profile</span>
               <button
                 onClick={handleEditProfile}
-                className="text-xs text-brand-400 hover:underline cursor-pointer shrink-0"
+                className="text-xs text-brand-700 hover:underline cursor-pointer shrink-0"
               >
                 Manage
               </button>
@@ -670,7 +670,7 @@ export default function WidgetApp() {
                 setActiveProfileId(id);
                 chrome.runtime.sendMessage({ action: 'setActiveProfileId', activeProfileId: id });
               }}
-              className="w-full bg-slate-800 border border-slate-700/80 rounded-lg px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-brand-500 cursor-pointer"
+              className="w-full bg-white border border-brand-800/20 rounded-lg px-3 py-2.5 text-sm text-brand-900 focus:outline-none focus:border-brand-600 cursor-pointer"
             >
               {profiles.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
@@ -686,7 +686,7 @@ export default function WidgetApp() {
             <button
               onClick={handleAutofill}
               disabled={isFilling}
-              className="w-full py-3 px-4 rounded-xl font-semibold text-sm shadow-md shadow-brand-600/20 transition flex items-center justify-center gap-2 cursor-pointer bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 active:scale-[0.99] text-white disabled:opacity-60"
+              className="w-full py-3 px-4 rounded-xl font-semibold text-sm shadow-md shadow-brand-600/25 transition flex items-center justify-center gap-2 cursor-pointer bg-brand-600 hover:bg-brand-700 active:scale-[0.99] text-white disabled:opacity-60"
             >
               <Sparkles className="w-5 h-5 shrink-0" />
               {isFilling ? 'Filling Form...' : 'Autofill Page'}
@@ -695,38 +695,38 @@ export default function WidgetApp() {
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={startManualMapping}
-                className="py-2.5 px-3 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 hover:text-white text-sm font-medium transition flex items-center justify-center gap-2 cursor-pointer min-h-[44px]"
+                className="py-2.5 px-3 rounded-lg bg-white border border-brand-800/20 hover:bg-cream-200 text-brand-800 text-sm font-medium transition flex items-center justify-center gap-2 cursor-pointer min-h-[44px]"
               >
-                <Edit3 className="w-4 h-4 text-indigo-400 shrink-0" />
+                <Edit3 className="w-4 h-4 text-brand-600 shrink-0" />
                 <span className="truncate">Manual Map</span>
               </button>
               <button
                 onClick={handleSaveTemplate}
-                className="py-2.5 px-3 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 hover:text-white text-sm font-medium transition flex items-center justify-center gap-2 cursor-pointer min-h-[44px]"
+                className="py-2.5 px-3 rounded-lg bg-white border border-brand-800/20 hover:bg-cream-200 text-brand-800 text-sm font-medium transition flex items-center justify-center gap-2 cursor-pointer min-h-[44px]"
               >
-                <Save className="w-4 h-4 text-brand-400 shrink-0" />
+                <Save className="w-4 h-4 text-brand-600 shrink-0" />
                 <span className="truncate">Save Template</span>
               </button>
             </div>
             {hasPasswordField && (
               <button
                 onClick={handleSaveCredentials}
-                className="w-full py-2.5 px-3 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 hover:text-white text-sm font-medium transition flex items-center justify-center gap-2 cursor-pointer min-h-[44px]"
+                className="w-full py-2.5 px-3 rounded-lg bg-white border border-brand-800/20 hover:bg-cream-200 text-brand-800 text-sm font-medium transition flex items-center justify-center gap-2 cursor-pointer min-h-[44px]"
               >
-                <Key className="w-4 h-4 text-yellow-500 shrink-0" />
+                <Key className="w-4 h-4 text-brand-700 shrink-0" />
                 Save Credentials
               </button>
             )}
           </div>
 
           {/* Quick Settings & Status */}
-          <div className="border-t border-slate-800/80 pt-4 flex flex-col gap-3">
+          <div className="border-t border-brand-800/15 pt-4 flex flex-col gap-3">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
-                <span className="text-sm text-slate-200 font-medium block leading-snug">
+                <span className="text-sm text-brand-900 font-medium block leading-snug">
                   Automatic filling on this site
                 </span>
-                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                <p className="text-xs text-brand-700/65 mt-1 leading-relaxed">
                   Fill empty fields when the page loads or changes
                 </p>
               </div>
@@ -734,21 +734,21 @@ export default function WidgetApp() {
                 type="button"
                 onClick={toggleDomainEnable}
                 aria-pressed={domainRule.enabled}
-                className="text-slate-400 hover:text-white transition cursor-pointer shrink-0 p-1 -mr-1"
+                className="text-brand-700/75 hover:text-brand-900 transition cursor-pointer shrink-0 p-1 -mr-1"
               >
                 {domainRule.enabled ? (
-                  <ToggleRight className="w-9 h-9 text-brand-500" />
+                  <ToggleRight className="w-9 h-9 text-brand-600" />
                 ) : (
-                  <ToggleLeft className="w-9 h-9 text-slate-500" />
+                  <ToggleLeft className="w-9 h-9 text-brand-400" />
                 )}
               </button>
             </div>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
-                <span className="text-sm text-slate-200 font-medium block leading-snug">
+                <span className="text-sm text-brand-900 font-medium block leading-snug">
                   Auto-fill when page loads
                 </span>
-                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                <p className="text-xs text-brand-700/65 mt-1 leading-relaxed">
                   Matches and fills empty fields automatically
                 </p>
               </div>
@@ -757,12 +757,12 @@ export default function WidgetApp() {
                 onClick={toggleAutoFillOnLoad}
                 disabled={!domainRule.enabled}
                 aria-pressed={domainRule.autoFillOnLoad && domainRule.enabled}
-                className="text-slate-400 hover:text-white transition cursor-pointer disabled:opacity-40 shrink-0 p-1 -mr-1"
+                className="text-brand-700/75 hover:text-brand-900 transition cursor-pointer disabled:opacity-40 shrink-0 p-1 -mr-1"
               >
                 {domainRule.autoFillOnLoad && domainRule.enabled ? (
-                  <ToggleRight className="w-9 h-9 text-brand-500" />
+                  <ToggleRight className="w-9 h-9 text-brand-600" />
                 ) : (
-                  <ToggleLeft className="w-9 h-9 text-slate-500" />
+                  <ToggleLeft className="w-9 h-9 text-brand-400" />
                 )}
               </button>
             </div>
@@ -771,9 +771,9 @@ export default function WidgetApp() {
           {/* Toast Notification area */}
           {statusMessage && (
             <div className={`text-center py-2 px-3 rounded-lg text-sm font-medium ${
-              statusMessage.type === 'success' ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/40' :
-              statusMessage.type === 'error' ? 'bg-rose-950/80 text-rose-300 border border-rose-800/40' :
-              'bg-slate-900 text-slate-300 border border-slate-800'
+              statusMessage.type === 'success' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300/50' :
+              statusMessage.type === 'error' ? 'bg-rose-100 text-rose-800 border border-rose-300/50' :
+              'bg-white text-brand-800 border border-brand-800/20'
             }`}>
               {statusMessage.text}
             </div>

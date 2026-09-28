@@ -23,20 +23,20 @@ export function SectionCustomFields({
   const sectionFields = fields.filter((f) => (f.section || 'personal') === section);
 
   return (
-    <div className="sm:col-span-2 mt-2 pt-5 border-t border-slate-800/70">
+    <div className="sm:col-span-2 mt-2 pt-5 border-t border-brand-800/15">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+          <p className="text-xs font-semibold uppercase tracking-wider text-brand-700/75">
             Extra fields
           </p>
-          <p className="text-[11px] text-slate-500 mt-0.5">
+          <p className="text-[11px] text-brand-700/65 mt-0.5">
             Optional answers matched by label during autofill
           </p>
         </div>
         <button
           type="button"
           onClick={() => onAdd(section)}
-          className="bg-brand-600/15 border border-brand-500/30 hover:bg-brand-600/25 text-brand-200 py-2 px-3.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shrink-0"
+          className="bg-brand-600/12 border border-brand-600/25 hover:bg-brand-600/20 text-brand-800 py-2 px-3.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shrink-0"
         >
           <Plus className="w-4 h-4" />
           Add field
@@ -44,7 +44,7 @@ export function SectionCustomFields({
       </div>
 
       {sectionFields.length === 0 ? (
-        <p className="text-xs text-slate-500 rounded-lg border border-dashed border-slate-800 py-4 px-3 text-center">
+        <p className="text-xs text-brand-700/65 rounded-lg border border-dashed border-brand-800/25 py-4 px-3 text-center">
           No extra fields yet — e.g. Gender, visa status, ethnicity
         </p>
       ) : (
@@ -59,7 +59,7 @@ export function SectionCustomFields({
             return (
               <div
                 key={field.id}
-                className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_40px] gap-3 items-start sm:items-center rounded-xl border border-slate-800/80 bg-slate-950/40 p-3 sm:p-0 sm:border-0 sm:bg-transparent"
+                className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_40px] gap-3 items-start sm:items-center rounded-xl border border-brand-800/15 bg-cream-50/80 p-3 sm:p-0 sm:border-0 sm:bg-transparent"
               >
                 <div>
                   <span className={`${profileLabelClass} sm:hidden`}>Label</span>

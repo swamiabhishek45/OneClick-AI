@@ -122,16 +122,16 @@ export default function PopupApp() {
   const activeProfile = profiles.find(p => p.id === activeProfileId) || profiles[0];
 
   return (
-    <div className="flex flex-col h-full bg-slate-950 text-slate-100 p-4 border border-slate-800 rounded-lg">
+    <div className="flex flex-col h-full bg-cream text-brand-900 p-4 border border-brand-800/15 rounded-lg">
       {/* Header */}
-      <div className="flex justify-between items-center pb-3 border-b border-slate-800">
+      <div className="flex justify-between items-center pb-3 border-b border-brand-800/15">
         <div className="flex items-center gap-2">
           <ExtensionLogo className="h-8 w-8 rounded-lg" />
-          <span className="font-semibold text-base bg-gradient-to-r from-brand-400 to-indigo-300 bg-clip-text text-transparent">OneClick Autofill AI</span>
+          <span className="font-semibold text-base text-brand-800">OneClick Autofill AI</span>
         </div>
         <button
           onClick={openDashboard}
-          className="p-1.5 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 hover:text-white transition cursor-pointer flex items-center gap-1 text-[10px] font-medium"
+          className="p-1.5 rounded-lg bg-white border border-brand-800/20 hover:bg-cream-200 text-brand-700 hover:text-brand-900 transition cursor-pointer flex items-center gap-1 text-[10px] font-medium"
         >
           <ExternalLink className="w-3.5 h-3.5" />
           Dashboard
@@ -142,14 +142,14 @@ export default function PopupApp() {
       {currentDomain ? (
         <div className="flex-1 flex flex-col gap-4 pt-4">
           {/* Active Profile */}
-          <div className="bg-slate-900/60 border border-slate-850 rounded-xl p-3">
-            <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+          <div className="bg-white/90 border border-brand-800/15 rounded-xl p-3">
+            <label className="block text-[10px] font-semibold text-brand-700/75 uppercase tracking-wider mb-1.5">
               Active User Profile
             </label>
             <select
               value={activeProfileId}
               onChange={handleProfileChange}
-              className="w-full bg-slate-800 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-brand-500 cursor-pointer"
+              className="w-full bg-white border border-brand-800/25 rounded-lg px-2.5 py-1.5 text-xs text-brand-900 focus:outline-none focus:border-brand-600 cursor-pointer"
             >
               {profiles.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
@@ -165,7 +165,7 @@ export default function PopupApp() {
             <button
               onClick={triggerAutofill}
               disabled={isFilling}
-              className="w-full py-2.5 px-4 rounded-xl font-medium text-xs shadow-md shadow-brand-600/20 transition flex items-center justify-center gap-2 cursor-pointer bg-gradient-to-r from-brand-600 to-indigo-650 hover:from-brand-500 hover:to-indigo-500 hover:scale-[1.01] text-white disabled:opacity-60"
+              className="w-full py-2.5 px-4 rounded-xl font-medium text-xs shadow-md shadow-brand-600/25 transition flex items-center justify-center gap-2 cursor-pointer bg-brand-600 hover:bg-brand-700 hover:scale-[1.01] text-white disabled:opacity-60"
             >
               {isFilling ? (
                 <>
@@ -182,45 +182,45 @@ export default function PopupApp() {
           </div>
 
           {/* Domain Specific Configuration */}
-          <div className="flex-1 flex flex-col gap-2.5 border-t border-slate-850 pt-3">
+          <div className="flex-1 flex flex-col gap-2.5 border-t border-brand-800/15 pt-3">
             <div className="flex justify-between items-center text-xs">
               <div>
-                <p className="font-medium text-slate-200">Automatic filling on this domain</p>
-                <p className="text-[10px] text-slate-500 truncate max-w-[180px]">{currentDomain}</p>
+                <p className="font-medium text-brand-900">Automatic filling on this domain</p>
+                <p className="text-[10px] text-brand-700/65 truncate max-w-[180px]">{currentDomain}</p>
               </div>
               <button onClick={toggleDomainEnabled} className="cursor-pointer">
                 {domainRule.enabled ? (
-                  <ToggleRight className="w-8 h-8 text-brand-500" />
+                  <ToggleRight className="w-8 h-8 text-brand-600" />
                 ) : (
-                  <ToggleLeft className="w-8 h-8 text-slate-600" />
+                  <ToggleLeft className="w-8 h-8 text-brand-400" />
                 )}
               </button>
             </div>
 
             <div className="flex justify-between items-center text-xs">
               <div>
-                <p className="font-medium text-slate-200">Auto-fill on page load</p>
-                <p className="text-[10px] text-slate-500">Scan and fill automatically</p>
+                <p className="font-medium text-brand-900">Auto-fill on page load</p>
+                <p className="text-[10px] text-brand-700/65">Scan and fill automatically</p>
               </div>
               <button onClick={toggleAutoFillOnLoad} disabled={!domainRule.enabled} className="cursor-pointer disabled:opacity-50">
                 {domainRule.autoFillOnLoad && domainRule.enabled ? (
-                  <ToggleRight className="w-8 h-8 text-brand-500" />
+                  <ToggleRight className="w-8 h-8 text-brand-600" />
                 ) : (
-                  <ToggleLeft className="w-8 h-8 text-slate-600" />
+                  <ToggleLeft className="w-8 h-8 text-brand-400" />
                 )}
               </button>
             </div>
 
             <div className="flex justify-between items-center text-xs">
               <div>
-                <p className="font-medium text-slate-200">Require confirmation</p>
-                <p className="text-[10px] text-slate-500">Approve before filling</p>
+                <p className="font-medium text-brand-900">Require confirmation</p>
+                <p className="text-[10px] text-brand-700/65">Approve before filling</p>
               </div>
               <button onClick={toggleRequireConfirmation} disabled={!domainRule.enabled} className="cursor-pointer disabled:opacity-50">
                 {domainRule.requireConfirmation && domainRule.enabled ? (
-                  <ToggleRight className="w-8 h-8 text-brand-500" />
+                  <ToggleRight className="w-8 h-8 text-brand-600" />
                 ) : (
-                  <ToggleLeft className="w-8 h-8 text-slate-600" />
+                  <ToggleLeft className="w-8 h-8 text-brand-400" />
                 )}
               </button>
             </div>
@@ -228,22 +228,22 @@ export default function PopupApp() {
         </div>
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center text-center p-6 gap-3">
-          <ShieldCheck className="w-12 h-12 text-slate-600" />
+          <ShieldCheck className="w-12 h-12 text-brand-400" />
           <div>
-            <p className="text-sm font-medium text-slate-300">Invalid Page Context</p>
-            <p className="text-xs text-slate-500 mt-1">OneClick Autofill AI cannot run on Chrome internal or system pages.</p>
+            <p className="text-sm font-medium text-brand-800">Invalid Page Context</p>
+            <p className="text-xs text-brand-700/65 mt-1">OneClick Autofill AI cannot run on Chrome internal or system pages.</p>
           </div>
         </div>
       )}
 
       {/* Footer / Toast Status */}
       {statusMessage ? (
-        <div className="mt-3 py-1.5 px-3 rounded bg-brand-950/60 border border-brand-800/40 text-brand-300 text-[10px] text-center font-medium animate-pulse">
+        <div className="mt-3 py-1.5 px-3 rounded bg-brand-100 border border-brand-300/50 text-brand-800 text-[10px] text-center font-medium animate-pulse">
           {statusMessage}
         </div>
       ) : (
-        <div className="mt-3 text-[10px] text-slate-500 text-center flex items-center justify-center gap-1 border-t border-slate-900 pt-2">
-          <Flame className="w-3.5 h-3.5 text-orange-500" />
+        <div className="mt-3 text-[10px] text-brand-700/65 text-center flex items-center justify-center gap-1 border-t border-brand-800/10 pt-2">
+          <Flame className="w-3.5 h-3.5 text-brand-600" />
           <span>Local database encrypted & offline-ready</span>
         </div>
       )}
