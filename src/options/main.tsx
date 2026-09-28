@@ -2,7 +2,17 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import OptionsApp from './OptionsApp.tsx';
 import '../index.css';
-import { initExtensionTheme, watchThemeChanges, applyThemeSetting } from '../shared/theme';
+import {
+  initExtensionTheme,
+  watchThemeChanges,
+  applyThemeSetting,
+  readCachedThemeSetting,
+} from '../shared/theme';
+
+const cachedTheme = readCachedThemeSetting();
+if (cachedTheme) {
+  applyThemeSetting(cachedTheme);
+}
 
 async function bootstrap() {
   await initExtensionTheme();

@@ -682,13 +682,79 @@ export function fillFormFields(mappings: { element: HTMLElement; value: string }
   return count;
 }
 
+const MIN_PAGE_AGE_BEFORE_UPLOAD_MS = 2500;
+const UPLOADER_READY_TIMEOUT_MS = 10000;
+
+/**
+ * ATS upload widgets register their uploader asynchronously after mount (Greenhouse fetches
+ * presigned S3 fields); setting a file before that makes the site's own handler throw.
+ */
+async function waitForUploadReadiness(): Promise<void> {
+  const age = performance.now();
+  if (age < MIN_PAGE_AGE_BEFORE_UPLOAD_MS) {
+    await sleep(MIN_PAGE_AGE_BEFORE_UPLOAD_MS - age);
+  }
+  if (!/(^|\.)greenhouse\.io$/.test(window.location.hostname)) return;
+
+  const deadline = Date.now() + UPLOADER_READY_TIMEOUT_MS;
+  const presignedLoaded = () =>
+    performance
+      .getEntriesByType('resource')
+      .some((entry) => entry.name.includes('presigned_fields'));
+  while (!presignedLoaded() && Date.now() < deadline) {
+    await sleep(250);
+  }
+}
+
+/** Largest ancestor that wraps this upload field only (not a sibling upload field). */
+function getUploadFieldContainer(input: HTMLInputElement): HTMLElement {
+  let container: HTMLElement = input.parentElement || input;
+  for (let depth = 0; depth < 5; depth++) {
+    const parent = container.parentElement;
+    if (!parent || parent.querySelectorAll('input[type="file"]').length > 1) break;
+    container = parent;
+  }
+  return container;
+}
+
+const SITE_UPLOAD_ERROR = /uploadFile|cannot read properties|upload failed|failed to upload/i;
+
+async function uploadFileWithRetry(input: HTMLInputElement, value: string): Promise<boolean> {
+  let fileName = '';
+  try {
+    fileName = String(JSON.parse(value).fileName || '');
+  } catch {
+    return false;
+  }
+  const container = getUploadFieldContainer(input);
+  const attempts = 3;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const target = input.isConnected
+      ? input
+      : container.querySelector<HTMLInputElement>('input[type="file"]');
+    if (!target || !fillField(target, value)) return false;
+    await sleep(1500);
+    const text = container.textContent || '';
+    if ((fileName && text.includes(fileName)) || !SITE_UPLOAD_ERROR.test(text)) return true;
+    if (attempt < attempts) {
+      await sleep(2000 * attempt);
+    }
+  }
+  return false;
+}
+
 export async function fillFormFieldsAsync(
   mappings: { element: HTMLElement; value: string; controlKind?: string }[]
 ): Promise<number> {
   const syncItems: typeof mappings = [];
   const asyncItems: typeof mappings = [];
+  const fileItems: { element: HTMLInputElement; value: string }[] = [];
 
   for (const item of mappings) {
+    if (item.element instanceof HTMLInputElement && item.element.type.toLowerCase() === 'file') {
+      fileItems.push({ element: item.element, value: item.value });
+      continue;
+    }
     const kind =
       item.controlKind || item.element.getAttribute('data-autofill-control-kind') || 'standard';
     const role = item.element.getAttribute('role');
@@ -715,6 +781,13 @@ export async function fillFormFieldsAsync(
   for (const item of asyncItems) {
     if (await fillFieldAsync(item.element, item.value)) count++;
     await sleep(120);
+  }
+
+  if (fileItems.length > 0) {
+    await waitForUploadReadiness();
+    for (const item of fileItems) {
+      if (await uploadFileWithRetry(item.element, item.value)) count++;
+    }
   }
 
   return count;

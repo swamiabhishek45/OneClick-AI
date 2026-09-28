@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
-import { Sparkles, Edit3, Settings, X, Minimize2 } from 'lucide-react';
-import { UserProfile } from '../shared/types';
+import { Sparkles, Edit3, Settings, X, Minimize2, ToggleLeft, ToggleRight } from 'lucide-react';
+import { DomainRule, UserProfile } from '../shared/types';
 import { ExtensionLogo } from '../shared/ExtensionLogo';
 import { applyThemeSetting, initExtensionTheme, watchThemeChanges } from '../shared/theme';
 import {
@@ -8,7 +8,15 @@ import {
   isExtensionContextValid,
   onExtensionContextInvalidated,
   sendExtensionMessage,
+  watchLocalStorage,
 } from '../shared/extensionRuntime';
+import {
+  fetchActiveProfileIdForUi,
+  fetchProfilesForUi,
+  PROFILES_CACHE_KEY,
+  resolveActiveProfileId,
+} from '../shared/profilesCache';
+import { isSiteAutoFillEnabled, withSiteAutoFill } from '../shared/domainRules';
 
 const EXT_RELOAD_MSG =
   'Extension was reloaded. Refresh this page to use OneClick Autofill AI again.';
@@ -26,7 +34,14 @@ export default function WidgetApp() {
   const [selectedFieldForMap, setSelectedFieldForMap] = useState('');
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'info' | 'success' | 'error' } | null>(null);
   const [isFilling, setIsFilling] = useState(false);
-  
+  const [domainRule, setDomainRule] = useState<DomainRule>(() => ({
+    domain: window.location.hostname,
+    enabled: true,
+    autoFillOnLoad: false,
+    requireConfirmation: false,
+  }));
+  const siteAutoFillOn = isSiteAutoFillEnabled(domainRule);
+
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const dragStartRef = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
@@ -115,6 +130,19 @@ export default function WidgetApp() {
       }
     });
 
+    const stopStorageWatch = watchLocalStorage((changes, area) => {
+      if (area !== 'local') return;
+      const cached = changes[PROFILES_CACHE_KEY]?.newValue as UserProfile[] | undefined;
+      if (cached) {
+        setProfiles(cached);
+        setActiveProfileId((current) => resolveActiveProfileId(cached, current));
+      }
+      const activeId = changes.activeProfileId?.newValue as string | undefined;
+      if (activeId) {
+        setActiveProfileId(activeId);
+      }
+    });
+
     const onAutofillDone = (e: Event) => {
       const detail = (e as CustomEvent<{ filledCount: number }>).detail;
       if (detail?.filledCount > 0) {
@@ -125,6 +153,7 @@ export default function WidgetApp() {
 
     return () => {
       stopMessages();
+      stopStorageWatch();
       window.removeEventListener('oneclick-autofill-complete', onAutofillDone);
     };
   }, []);
@@ -157,6 +186,7 @@ export default function WidgetApp() {
 
   const openPanel = () => {
     fabAnchorTopRef.current = anchorPosition.top;
+    void loadData();
     setExpanded(true);
   };
 
@@ -170,20 +200,31 @@ export default function WidgetApp() {
   const loadData = async () => {
     if (!isExtensionContextValid()) return;
 
-    const profilesResponse = await sendExtensionMessage<{ profiles?: UserProfile[] }>({
-      action: 'getProfiles',
-    });
-    if (profilesResponse?.profiles) {
-      setProfiles(profilesResponse.profiles);
-    }
+    const list = await fetchProfilesForUi();
+    setProfiles(list);
+    const activeId = await fetchActiveProfileIdForUi();
+    setActiveProfileId(resolveActiveProfileId(list, activeId));
 
-    const activeResponse = await sendExtensionMessage<{ activeProfileId?: string }>({
-      action: 'getActiveProfileId',
+    const ruleResponse = await sendExtensionMessage<{ rule?: DomainRule }>({
+      action: 'getDomainRule',
+      domain: window.location.hostname,
     });
-    if (activeResponse?.activeProfileId) {
-      setActiveProfileId(activeResponse.activeProfileId);
+    if (ruleResponse?.rule) {
+      setDomainRule(ruleResponse.rule);
     }
+  };
 
+  const toggleSiteAutoFill = () => {
+    const nextOn = !siteAutoFillOn;
+    const updated = withSiteAutoFill(domainRule, nextOn);
+    setDomainRule(updated);
+    void sendExtensionMessage({ action: 'saveDomainRule', rule: updated });
+    if (nextOn) {
+      showStatus('Auto-fill on for this site', 'success');
+      handleAutofill();
+    } else {
+      showStatus('Auto-fill off for this site. Autofill Page still works.', 'info');
+    }
   };
 
   // Show status flash
@@ -289,7 +330,7 @@ export default function WidgetApp() {
 
     window.dispatchEvent(
       new CustomEvent('oneclick-request-autofill', {
-        detail: { profileId: activeProfileId, force: false },
+        detail: { profileId: resolveActiveProfileId(profiles, activeProfileId), force: false },
       })
     );
   };
@@ -609,7 +650,7 @@ export default function WidgetApp() {
               </button>
             </div>
             <select
-              value={activeProfileId}
+              value={resolveActiveProfileId(profiles, activeProfileId)}
               onChange={(e) => {
                 const id = e.target.value;
                 setActiveProfileId(id);
@@ -621,7 +662,7 @@ export default function WidgetApp() {
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
               {profiles.length === 0 && (
-                <option value="default">Default Profile</option>
+                <option value="default">No profiles, open Dashboard</option>
               )}
             </select>
           </div>
@@ -643,6 +684,30 @@ export default function WidgetApp() {
             >
               <Edit3 className="w-4 h-4 text-brand-600 shrink-0" />
               Map a field on this page
+            </button>
+          </div>
+
+          <div className="border-t border-brand-800/15 pt-3 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-brand-900 leading-snug">Auto-fill on this site</p>
+              <p className="text-[11px] text-brand-700/65 mt-0.5">
+                {siteAutoFillOn
+                  ? 'Fills forms automatically when they appear'
+                  : 'Off: only fills when you click Autofill Page'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={toggleSiteAutoFill}
+              aria-pressed={siteAutoFillOn}
+              title={siteAutoFillOn ? 'Turn off auto-fill for this site' : 'Turn on auto-fill for this site'}
+              className="transition cursor-pointer shrink-0 p-1"
+            >
+              {siteAutoFillOn ? (
+                <ToggleRight className="w-9 h-9 text-brand-600" />
+              ) : (
+                <ToggleLeft className="w-9 h-9 text-brand-400" />
+              )}
             </button>
           </div>
 

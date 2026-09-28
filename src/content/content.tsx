@@ -5,9 +5,13 @@ import { scanFormFields } from './FormScanner';
 import { extractJobDescription } from './JobDescriptionScanner';
 import { fillFormFields, fillFormFieldsAsync, isFieldEmpty } from './AutofillEngine';
 import { AI_GENERATED_FIELD_PATH, AUTO_FILL_CONFIDENCE_THRESHOLD } from '../shared/ai';
-import { isDefaultResumeMatchValue } from '../shared/resumeAutofill';
-import { AppSettings } from '../shared/types';
+import {
+  isCoverLetterFileMatchValue,
+  isDefaultResumeMatchValue,
+} from '../shared/resumeAutofill';
+import { AppSettings, DomainRule } from '../shared/types';
 import { isHostAllowed } from '../shared/siteAccess';
+import { isSiteAutoFillEnabled } from '../shared/domainRules';
 import {
   addExtensionMessageListener,
   getExtensionURL,
@@ -19,6 +23,7 @@ import {
 import '../index.css';
 
 const AUTOFILL_MSG_SOURCE = 'oneclick-autofill';
+const NO_FIELDS_ERROR = 'No fillable fields found on this page.';
 
 type AutofillRunResult = { success: boolean; filledCount: number; error?: string };
 
@@ -89,6 +94,7 @@ const filledFieldsMap = new Map<HTMLElement, {
 
 let autofillInProgress = false;
 let lastAutofillAt = 0;
+let lastAutoFillSignature = '';
 let mutationObserver: MutationObserver | null = null;
 let widgetMounted = false;
 
@@ -168,6 +174,48 @@ async function fetchAppSettings(): Promise<AppSettings | null> {
   return response?.settings ?? null;
 }
 
+/** Hostname of the tab's top page, so embedded ATS frames follow the host site's settings. */
+function getPageHostname(): string {
+  if (isTopFrame()) return window.location.hostname;
+  try {
+    return window.top!.location.hostname;
+  } catch {
+    const ancestors = window.location.ancestorOrigins;
+    const topOrigin = ancestors?.length ? ancestors[ancestors.length - 1] : document.referrer;
+    try {
+      return new URL(topOrigin).hostname || window.location.hostname;
+    } catch {
+      return window.location.hostname;
+    }
+  }
+}
+
+async function fetchDomainRule(): Promise<DomainRule> {
+  const domain = getPageHostname();
+  const response = await sendExtensionMessage<{ rule?: DomainRule }>({
+    action: 'getDomainRule',
+    domain,
+  });
+  return (
+    response?.rule ?? { domain, enabled: true, autoFillOnLoad: false, requireConfirmation: false }
+  );
+}
+
+function isHostAllowedHere(allowlist: string[]): boolean {
+  return (
+    isHostAllowed(getPageHostname(), allowlist) ||
+    isHostAllowed(window.location.hostname, allowlist)
+  );
+}
+
+/** Automatic fill runs when the site toggle is on or the global setting is on. */
+async function isAutoFillEnabledHere(settings: AppSettings | null): Promise<boolean> {
+  if (settings?.globalEnabled === false) return false;
+  if (settings && !isHostAllowedHere(settings.siteAllowlist)) return false;
+  if (settings?.autoFillOnLoad === true) return true;
+  return isSiteAutoFillEnabled(await fetchDomainRule());
+}
+
 async function fetchActiveProfileId(): Promise<string> {
   const response = await sendExtensionMessage<{ activeProfileId?: string }>({
     action: 'getActiveProfileId',
@@ -185,15 +233,15 @@ async function shouldRunAutofill(options: {
     return { allowed: false, reason: 'Extension is disabled in settings.' };
   }
 
-  if (settings && !isHostAllowed(window.location.hostname, settings.siteAllowlist)) {
+  if (settings && !isHostAllowedHere(settings.siteAllowlist)) {
     return {
       allowed: false,
       reason: 'This site is not on your allowlist. Add it in Dashboard → Settings.',
     };
   }
 
-  if (!options.manual && settings?.autoFillOnLoad !== true) {
-    return { allowed: false, reason: 'Auto-fill on page load is off.' };
+  if (!options.manual && !(await isAutoFillEnabledHere(settings))) {
+    return { allowed: false, reason: 'Automatic fill is off for this site.' };
   }
 
   return { allowed: true };
@@ -222,7 +270,7 @@ async function runAutofill(options: {
 
     const { elements, metadata } = scanAllFormFields();
     if (elements.length === 0) {
-      return { success: false, filledCount: 0, error: 'No fillable fields found on this page.' };
+      return { success: false, filledCount: 0, error: NO_FIELDS_ERROR };
     }
 
     const eligibleElements: HTMLElement[] = [];
@@ -236,6 +284,14 @@ async function runAutofill(options: {
 
     if (eligibleMetadata.length === 0) {
       return { success: true, filledCount: 0, error: 'All detected fields are already filled.' };
+    }
+
+    if (!manual) {
+      const signature = eligibleMetadata.map((m) => m.scanId).join('|');
+      if (signature === lastAutoFillSignature) {
+        return { success: true, filledCount: 0 };
+      }
+      lastAutoFillSignature = signature;
     }
 
     const appSettings = await fetchAppSettings();
@@ -252,38 +308,47 @@ async function runAutofill(options: {
       fields: eligibleMetadata,
       profileId: targetProfileId,
       jobDescription,
+      manual,
     })) ?? {};
     const matches = matchResponse.matches || {};
     const geminiWarning = matchResponse.geminiWarning;
 
     const fillPayload: { element: HTMLElement; value: string; controlKind?: string }[] = [];
     const minConfidence = manual ? 0.4 : AUTO_FILL_CONFIDENCE_THRESHOLD;
-    let cachedResumePayloadJson: string | null = null;
+    const documentPayloadCache: Partial<Record<'resume' | 'coverLetter', string | null>> = {};
     const previewElements: HTMLElement[] = [];
-    let aiFieldCount = 0;
-    let resumeFieldCount = 0;
+
+    const loadDocumentPayload = async (
+      documentType: 'resume' | 'coverLetter'
+    ): Promise<string | null> => {
+      if (documentType in documentPayloadCache) {
+        return documentPayloadCache[documentType] ?? null;
+      }
+      const response = await sendExtensionMessage<{
+        resume?: { fileName: string; fileType: string; base64Data: string } | null;
+      }>({ action: 'getProfileDocument', profileId: targetProfileId, documentType });
+      const payload = response?.resume?.base64Data ? JSON.stringify(response.resume) : null;
+      documentPayloadCache[documentType] = payload;
+      return payload;
+    };
 
     const resolveFillValue = async (match: {
       fieldPath: string;
       matchedValue: string;
     }): Promise<string | null> => {
-      if (
-        match.fieldPath !== 'system.resume' &&
-        !isDefaultResumeMatchValue(match.matchedValue)
-      ) {
-        return match.matchedValue;
-      }
       if (match.matchedValue.startsWith('{') && match.matchedValue.includes('base64Data')) {
         return match.matchedValue;
       }
-      if (!cachedResumePayloadJson) {
-        const resumeResponse = await sendExtensionMessage<{
-          resume?: { fileName: string; fileType: string; base64Data: string };
-        }>({ action: 'getDefaultResume' });
-        if (!resumeResponse?.resume?.base64Data) return null;
-        cachedResumePayloadJson = JSON.stringify(resumeResponse.resume);
+      if (
+        match.fieldPath === 'system.coverLetterFile' ||
+        isCoverLetterFileMatchValue(match.matchedValue)
+      ) {
+        return loadDocumentPayload('coverLetter');
       }
-      return cachedResumePayloadJson;
+      if (match.fieldPath === 'system.resume' || isDefaultResumeMatchValue(match.matchedValue)) {
+        return loadDocumentPayload('resume');
+      }
+      return match.matchedValue;
     };
 
     for (const el of eligibleElements) {
@@ -306,10 +371,6 @@ async function runAutofill(options: {
         controlKind: meta?.controlKind,
       });
       previewElements.push(el);
-      if (match.fieldPath === AI_GENERATED_FIELD_PATH) aiFieldCount += 1;
-      if (match.fieldPath === 'system.resume' || isDefaultResumeMatchValue(match.matchedValue)) {
-        resumeFieldCount += 1;
-      }
 
       const labelText = meta?.label || meta?.placeholder || '';
 
@@ -336,23 +397,6 @@ async function runAutofill(options: {
           geminiWarning ||
           'No confident field matches for this form. Add your Gemini API key in Settings.',
       };
-    }
-
-    if (
-      manual &&
-      !options.skipConfirmation &&
-      appSettings?.showFillPreview !== false
-    ) {
-      const parts = [`Fill ${fillPayload.length} field${fillPayload.length === 1 ? '' : 's'}?`];
-      if (aiFieldCount > 0) {
-        parts.push(`${aiFieldCount} will use AI-generated text`);
-      }
-      if (resumeFieldCount > 0) {
-        parts.push(`${resumeFieldCount} resume upload${resumeFieldCount === 1 ? '' : 's'}`);
-      }
-      if (!window.confirm(`OneClick Autofill AI\n\n${parts.join('\n')}`)) {
-        return { success: false, filledCount: 0, error: 'Autofill cancelled.' };
-      }
     }
 
     const count = await fillFormFieldsAsync(fillPayload);
@@ -400,9 +444,7 @@ function setupMutationObserver() {
       if (!isExtensionContextValid()) return;
       if (Date.now() - lastAutofillAt < 800) return;
 
-      const settings = await fetchAppSettings();
-      const globalEnabled = settings?.globalEnabled !== false;
-      if (!globalEnabled || settings?.autoFillOnLoad !== true) return;
+      if (!(await isAutoFillEnabledHere(await fetchAppSettings()))) return;
 
       await orchestrateAutofill({ manual: false });
     }, 1200);
@@ -433,68 +475,93 @@ async function orchestrateAutofill(options: {
     return runAutofill(options);
   }
 
-  const iframeCount = document.querySelectorAll('iframe').length;
-  let iframeFilled = 0;
-  let iframeErrors = 0;
-
-  if (iframeCount > 0) {
-    await new Promise<void>((resolve) => {
-      const timeout = window.setTimeout(() => resolve(), 2500);
-      const onMessage = (event: MessageEvent) => {
-        const data = event.data;
-        if (!data || data.source !== AUTOFILL_MSG_SOURCE) return;
-        if (data.action === 'autofill-result') {
-          if (typeof data.filledCount === 'number') {
-            iframeFilled += data.filledCount;
-          }
-          if (data.success === false && data.error) {
-            iframeErrors += 1;
-          }
-        }
-        if (data.action === 'autofill-done') {
-          window.clearTimeout(timeout);
-          window.removeEventListener('message', onMessage);
-          resolve();
-        }
-      };
-      window.addEventListener('message', onMessage);
-
-      for (const iframe of document.querySelectorAll('iframe')) {
-        try {
-          iframe.contentWindow?.postMessage(
-            {
-              source: AUTOFILL_MSG_SOURCE,
-              action: 'run-autofill',
-              profileId: options.profileId,
-              force: options.force === true,
-              skipConfirmation: options.skipConfirmation,
-            },
-            '*'
-          );
-        } catch {
-          /* ignore */
-        }
-      }
-    });
-  }
+  const iframes = Array.from(document.querySelectorAll('iframe'));
+  const frameResults = iframes.length > 0 ? collectFrameResults(iframes, options) : null;
 
   const localResult = await runAutofill(options);
-  const totalFilled = localResult.filledCount + iframeFilled;
+  const frames = frameResults ? await frameResults : [];
+
+  const framesWithFields = frames.filter((r) => r.hadFields);
+  const totalFilled =
+    localResult.filledCount + frames.reduce((sum, r) => sum + (r.filledCount || 0), 0);
 
   if (totalFilled > 0) {
     return { success: true, filledCount: totalFilled };
   }
-  if (localResult.success && localResult.filledCount === 0 && iframeFilled === 0) {
-    return localResult;
+  const localHadFields = localResult.error !== NO_FIELDS_ERROR;
+  if (!localHadFields && framesWithFields.length > 0) {
+    const frame = framesWithFields.find((r) => r.error) || framesWithFields[0];
+    return { success: frame.success, filledCount: 0, error: frame.error };
   }
-  if (!localResult.success && iframeFilled === 0 && iframeErrors > 0) {
-    return {
-      success: false,
-      filledCount: 0,
-      error: localResult.error || 'Could not fill fields in embedded application frame.',
+  return localResult;
+}
+
+type FrameAutofillResult = AutofillRunResult & { hadFields: boolean };
+
+/**
+ * Asks child frames to fill. Frames with a content script ack immediately; we then wait
+ * for every acked frame to report (Gemini matching inside a frame can take a while).
+ */
+function collectFrameResults(
+  iframes: HTMLIFrameElement[],
+  options: { profileId?: string; force?: boolean }
+): Promise<FrameAutofillResult[]> {
+  return new Promise((resolve) => {
+    const acked = new Set<MessageEventSource>();
+    const results = new Map<MessageEventSource, FrameAutofillResult>();
+    let ackWindowClosed = false;
+
+    const finish = () => {
+      window.clearTimeout(ackTimer);
+      window.clearTimeout(overallTimer);
+      window.removeEventListener('message', onMessage);
+      resolve([...results.values()]);
     };
-  }
-  return { ...localResult, filledCount: totalFilled, success: totalFilled > 0 || localResult.success };
+    const maybeFinish = () => {
+      if (ackWindowClosed && results.size >= acked.size) finish();
+    };
+
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data;
+      if (!data || data.source !== AUTOFILL_MSG_SOURCE || !event.source) return;
+      if (!iframes.some((f) => f.contentWindow === event.source)) return;
+      if (data.action === 'autofill-ack') {
+        acked.add(event.source);
+      } else if (data.action === 'autofill-result') {
+        acked.add(event.source);
+        results.set(event.source, {
+          success: data.success === true,
+          filledCount: typeof data.filledCount === 'number' ? data.filledCount : 0,
+          error: typeof data.error === 'string' ? data.error : undefined,
+          hadFields: data.hadFields === true,
+        });
+        maybeFinish();
+      }
+    };
+    window.addEventListener('message', onMessage);
+
+    const ackTimer = window.setTimeout(() => {
+      ackWindowClosed = true;
+      maybeFinish();
+    }, 700);
+    const overallTimer = window.setTimeout(finish, 40000);
+
+    for (const iframe of iframes) {
+      try {
+        iframe.contentWindow?.postMessage(
+          {
+            source: AUTOFILL_MSG_SOURCE,
+            action: 'run-autofill',
+            profileId: options.profileId,
+            force: options.force === true,
+          },
+          '*'
+        );
+      } catch {
+        /* ignore */
+      }
+    }
+  });
 }
 
 function handleAutofillPostMessage(event: MessageEvent): void {
@@ -502,44 +569,37 @@ function handleAutofillPostMessage(event: MessageEvent): void {
   if (!data || data.source !== AUTOFILL_MSG_SOURCE || data.action !== 'run-autofill') {
     return;
   }
-  if (isTopFrame()) {
+  if (isTopFrame() || event.source !== window.parent) {
     return;
   }
 
+  const reply = (payload: Record<string, unknown>) => {
+    try {
+      window.parent.postMessage({ source: AUTOFILL_MSG_SOURCE, ...payload }, '*');
+    } catch {
+      /* ignore */
+    }
+  };
+
+  reply({ action: 'autofill-ack' });
   void (async () => {
     const result = await runAutofill({
       profileId: data.profileId,
       manual: true,
       force: data.force === true,
-      skipConfirmation: data.skipConfirmation,
     });
-    try {
-      window.parent.postMessage(
-        {
-          source: AUTOFILL_MSG_SOURCE,
-          action: 'autofill-result',
-          filledCount: result.filledCount,
-          success: result.success,
-          error: result.error,
-        },
-        '*'
-      );
-    } catch {
-      /* ignore */
-    } finally {
-      try {
-        window.parent.postMessage({ source: AUTOFILL_MSG_SOURCE, action: 'autofill-done' }, '*');
-      } catch {
-        /* ignore */
-      }
-    }
+    reply({
+      action: 'autofill-result',
+      filledCount: result.filledCount,
+      success: result.success,
+      error: result.error,
+      hadFields: result.error !== NO_FIELDS_ERROR,
+    });
   })();
 }
 
 async function checkAutoFillOnLoad() {
-  const settings = await fetchAppSettings();
-  const globalEnabled = settings?.globalEnabled !== false;
-  if (!globalEnabled || settings?.autoFillOnLoad !== true) return;
+  if (!(await isAutoFillEnabledHere(await fetchAppSettings()))) return;
 
   setTimeout(() => {
     if (isTopFrame()) {
@@ -553,6 +613,7 @@ async function checkAutoFillOnLoad() {
 addExtensionMessageListener((message, _sender, sendResponse) => {
   const payload = message as { action?: string; profileId?: string; force?: boolean };
   if (payload.action === 'triggerAutofill') {
+    if (!isTopFrame()) return false;
     orchestrateAutofill({
       profileId: payload.profileId,
       manual: true,

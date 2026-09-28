@@ -1,4 +1,12 @@
-import { UserProfile, Resume, ManualMapping, LearningMapping, DomainRule, AppSettings } from './types';
+import {
+  UserProfile,
+  Resume,
+  ManualMapping,
+  LearningMapping,
+  DomainRule,
+  AppSettings,
+  ProfileDocumentType,
+} from './types';
 
 const DB_NAME = 'OneClickAutofillDB';
 const DB_VERSION = 2;
@@ -131,6 +139,85 @@ export async function deleteResume(id: string): Promise<void> {
   });
 }
 
+export function getDocumentType(doc: Resume): ProfileDocumentType {
+  return doc.documentType === 'coverLetter' ? 'coverLetter' : 'resume';
+}
+
+function newestFirst(a: Resume, b: Resume): number {
+  return (b.uploadedAt || '').localeCompare(a.uploadedAt || '');
+}
+
+export async function getProfileDocuments(
+  profileId: string,
+  documentType: ProfileDocumentType
+): Promise<Resume[]> {
+  const all = await getResumes();
+  return all
+    .filter((r) => r.profileId === profileId && getDocumentType(r) === documentType)
+    .sort(newestFirst);
+}
+
+/** Active file for autofill; falls back to the newest upload. */
+export async function getProfileDocument(
+  profileId: string,
+  documentType: ProfileDocumentType
+): Promise<Resume | null> {
+  const docs = await getProfileDocuments(profileId, documentType);
+  return docs.find((r) => r.isDefault) || docs[0] || null;
+}
+
+export async function setActiveProfileDocument(id: string): Promise<void> {
+  const all = await getResumes();
+  const target = all.find((r) => r.id === id);
+  if (!target) return;
+  const type = getDocumentType(target);
+  for (const doc of all) {
+    if (doc.profileId !== target.profileId || getDocumentType(doc) !== type) continue;
+    const shouldBeActive = doc.id === id;
+    if (Boolean(doc.isDefault) !== shouldBeActive) {
+      await saveResume({ ...doc, isDefault: shouldBeActive });
+    }
+  }
+}
+
+/** Deletes a file and promotes the newest remaining one if it was active. */
+export async function deleteProfileDocument(id: string): Promise<void> {
+  const all = await getResumes();
+  const target = all.find((r) => r.id === id);
+  await deleteResume(id);
+  if (!target?.isDefault) return;
+  const remaining = all
+    .filter(
+      (r) =>
+        r.id !== id &&
+        r.profileId === target.profileId &&
+        getDocumentType(r) === getDocumentType(target)
+    )
+    .sort(newestFirst);
+  if (remaining[0]) {
+    await saveResume({ ...remaining[0], isDefault: true });
+  }
+}
+
+export async function deleteProfileDocuments(profileId: string): Promise<void> {
+  const all = await getResumes();
+  for (const doc of all) {
+    if (doc.profileId === profileId) {
+      await deleteResume(doc.id);
+    }
+  }
+}
+
+/** Assigns files uploaded before per-profile documents existed to the given profile. */
+export async function assignLegacyDocuments(profileId: string): Promise<void> {
+  const all = await getResumes();
+  for (const doc of all) {
+    if (!doc.profileId) {
+      await saveResume({ ...doc, profileId, documentType: getDocumentType(doc) });
+    }
+  }
+}
+
 // Manual Mappings CRUD
 export async function getManualMappings(): Promise<ManualMapping[]> {
   const store = await getStore('manualMappings');
@@ -258,7 +345,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   globalEnabled: true,
   learnFromCorrections: true,
   siteAllowlist: [],
-  showFillPreview: true,
+  showFillPreview: false,
   autoFillOnLoad: false,
 };
 
@@ -275,7 +362,7 @@ function normalizeAppSettings(stored: Partial<AppSettings> | undefined): AppSett
     ai: { ...DEFAULT_SETTINGS.ai, ...aiRaw, provider },
     learnFromCorrections: stored?.learnFromCorrections !== false,
     siteAllowlist: Array.isArray(stored?.siteAllowlist) ? stored.siteAllowlist : [],
-    showFillPreview: stored?.showFillPreview !== false,
+    showFillPreview: false,
     autoFillOnLoad: stored?.autoFillOnLoad === true,
   };
 }

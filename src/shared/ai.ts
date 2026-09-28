@@ -1,5 +1,11 @@
 import { UserProfile, AppSettings, LearningMapping } from './types';
-import { DEFAULT_RESUME_MATCH_VALUE, isResumeFileField } from './resumeAutofill';
+import {
+  DEFAULT_COVER_LETTER_FILE_VALUE,
+  DEFAULT_RESUME_MATCH_VALUE,
+  isCoverLetterFileField,
+  isCoverLetterTextField,
+  isResumeFileField,
+} from './resumeAutofill';
 
 export interface ScannedFieldMetadata {
   scanId: string; // Internal unique scan ID
@@ -84,7 +90,6 @@ const AUTOCOMPLETE_TO_PATH: Record<string, string> = {
   'tel-national': 'personal.phone',
   'street-address': 'personal.address',
   'address-line1': 'personal.address',
-  'address-line2': 'personal.address',
   'address-level2': 'personal.city',
   'address-level1': 'personal.state',
   country: 'personal.country',
@@ -97,11 +102,33 @@ const AUTOCOMPLETE_TO_PATH: Record<string, string> = {
 
 function normalizeFieldText(text: string): string {
   return text
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
     .toLowerCase()
     .replace(/\*/g, '')
     .replace(/[:\-_]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+const keywordRegexCache = new Map<string, RegExp>();
+
+/** Whole-word/phrase match so "state" does not hit "statement" or "tel" hit "hotel". */
+function hasKeyword(text: string, keyword: string): boolean {
+  if (!text || !keyword) return false;
+  let re = keywordRegexCache.get(keyword);
+  if (!re) {
+    const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    re = new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9])`);
+    keywordRegexCache.set(keyword, re);
+  }
+  return re.test(text);
+}
+
+/** Attribute tokens are often glued together (e.g. "applicantfirstname"). */
+function attrHasKeyword(attr: string, keyword: string): boolean {
+  if (!attr) return false;
+  if (hasKeyword(attr, keyword)) return true;
+  return keyword.length >= 5 && attr.replace(/\s+/g, '').includes(keyword.replace(/\s+/g, ''));
 }
 
 function matchByInputType(field: ScannedFieldMetadata): MatchResult | null {
@@ -143,23 +170,22 @@ function matchProfileCustomFields(
     const cfName = normalizeFieldText(cf.name);
     if (!cfName) continue;
 
-    if (haystack.includes(cfName) || cfName.includes(label)) {
+    if (hasKeyword(haystack, cfName) || (label.length >= 3 && cfName === label)) {
       return { fieldPath: `custom:${cf.id}`, confidence: 0.92, matchedValue: value };
     }
 
     const cfWords = cfName.split(/\s+/).filter((w) => w.length >= 3);
     if (cfWords.length > 0) {
-      const hits = cfWords.filter((word) => haystack.includes(word));
+      const hits = cfWords.filter((word) => hasKeyword(haystack, word));
       const need = cfWords.length === 1 ? 1 : Math.min(2, cfWords.length);
       if (hits.length >= need) {
         return { fieldPath: `custom:${cf.id}`, confidence: 0.9, matchedValue: value };
       }
     }
 
-    const nameMatch = name.includes(cfName) || (cfName.includes(name) && name.length >= 3);
-    const idMatch = id.includes(cfName) || (cfName.includes(id) && id.length >= 3);
-    const labelMatch = label.includes(cfName) || (cfName.includes(label) && label.length >= 3);
-    if (nameMatch || idMatch || labelMatch || surrounding.includes(cfName)) {
+    const nameMatch = attrHasKeyword(name, cfName) || (name.length >= 3 && cfName === name);
+    const idMatch = attrHasKeyword(id, cfName) || (id.length >= 3 && cfName === id);
+    if (nameMatch || idMatch) {
       return { fieldPath: `custom:${cf.id}`, confidence: 0.88, matchedValue: value };
     }
   }
@@ -211,6 +237,13 @@ export function matchFieldHeuristically(
   }
 
   if (fieldType === 'file') {
+    if (isCoverLetterFileField(field)) {
+      return {
+        fieldPath: 'system.coverLetterFile',
+        confidence: 0.95,
+        matchedValue: DEFAULT_COVER_LETTER_FILE_VALUE,
+      };
+    }
     if (isResumeFileField(field)) {
       return {
         fieldPath: 'system.resume',
@@ -230,6 +263,15 @@ export function matchFieldHeuristically(
   }
 
   let typeHintMatch = matchByInputType(field);
+
+  const coverLetterText = profile.professional.coverLetter?.trim();
+  if (coverLetterText && isCoverLetterTextField(field)) {
+    return {
+      fieldPath: 'professional.coverLetter',
+      confidence: 0.93,
+      matchedValue: coverLetterText,
+    };
+  }
 
   const fieldTypeLower = (field.type || '').toLowerCase();
   if (fieldTypeLower === 'textarea' || fieldTypeLower === 'contenteditable' || fieldTypeLower === 'textbox') {
@@ -269,39 +311,53 @@ export function matchFieldHeuristically(
   // 2. Exact or near-exact match on keywords
   let bestMatchPath: string | null = null;
   let maxConfidence = 0;
+  let bestKeywordLength = 0;
 
   for (const [path, keywords] of Object.entries(KEYWORDS)) {
-    for (const kw of keywords) {
+    for (const rawKw of keywords) {
+      const kw = normalizeFieldText(rawKw);
       // Priority 1: Label exact match
       if (label === kw) {
-        updateBestMatch(path, 0.95);
+        updateBestMatch(path, 0.95, kw);
       }
-      // Priority 2: Label contains keyword as word boundary
-      else if (label.includes(kw)) {
-        updateBestMatch(path, 0.85);
+      // Priority 2: Label contains keyword as a whole word/phrase
+      else if (hasKeyword(label, kw)) {
+        updateBestMatch(path, 0.85, kw);
       }
       // Priority 3: Placeholder match
-      else if (placeholder === kw || placeholder.includes(kw)) {
-        updateBestMatch(path, 0.80);
+      else if (hasKeyword(placeholder, kw)) {
+        updateBestMatch(path, 0.80, kw);
       }
       // Priority 4: Aria Label match
-      else if (ariaLabel === kw || ariaLabel.includes(kw)) {
-        updateBestMatch(path, 0.80);
+      else if (hasKeyword(ariaLabel, kw)) {
+        updateBestMatch(path, 0.80, kw);
       }
       // Priority 5: HTML Name/ID attribute contains keyword
-      else if (name === kw || name.includes(kw) || id === kw || id.includes(kw)) {
-        updateBestMatch(path, 0.75);
+      else if (attrHasKeyword(name, kw) || attrHasKeyword(id, kw)) {
+        updateBestMatch(path, 0.75, kw);
       }
       // Priority 6: Surrounding text matches keyword
-      else if (surrounding.includes(kw)) {
-        updateBestMatch(path, 0.65);
+      else if (hasKeyword(surrounding, kw)) {
+        updateBestMatch(path, 0.65, kw);
       }
     }
   }
 
-  function updateBestMatch(path: string, confidence: number) {
-    // Avoid mapping firstName or lastName keywords to fullName if specific fields exist
-    if (path === 'personal.fullName' && (label.includes('first name') || label.includes('last name') || placeholder.includes('first name') || placeholder.includes('last name'))) {
+  function updateBestMatch(path: string, confidence: number, kw: string) {
+    const nameText = `${label} ${placeholder} ${ariaLabel}`;
+    // Avoid mapping first/last/given/family name fields to fullName
+    if (
+      path === 'personal.fullName' &&
+      /\b(first|last|given|family|middle|sur|fore)\s?name\b|\bsurname\b|\bforename\b/.test(nameText)
+    ) {
+      return;
+    }
+
+    // Second address line should not repeat the first line
+    if (
+      path === 'personal.address' &&
+      /\b(line|address)\s?2\b|\baddress2\b|\bapartment\b|\bsuite\b/.test(`${nameText} ${name} ${id}`)
+    ) {
       return;
     }
 
@@ -342,9 +398,13 @@ export function matchFieldHeuristically(
       }
     }
 
-    if (confidence > maxConfidence) {
+    if (
+      confidence > maxConfidence ||
+      (confidence === maxConfidence && kw.length > bestKeywordLength)
+    ) {
       maxConfidence = confidence;
       bestMatchPath = path;
+      bestKeywordLength = kw.length;
     }
   }
 
@@ -640,7 +700,11 @@ function normalizeGeminiFieldMap(
       assign(exact, resolution);
       continue;
     }
-    const partial = [...batchScanIds].find((id) => key.includes(id) || id.includes(key));
+    const trimmedKey = key.trim();
+    if (trimmedKey.length < 4) continue;
+    const partial = [...batchScanIds].find(
+      (id) => trimmedKey.includes(id) || id.includes(trimmedKey)
+    );
     if (partial) {
       assign(partial, resolution);
     }
@@ -686,8 +750,6 @@ function resolutionToMatchResult(
   if (strategy === 'profile' && resolution.fieldPath) {
     let val = getProfileValueByPath(profile, resolution.fieldPath);
     if (choiceField && answerText) {
-      val = answerText;
-    } else if (!val && answerText) {
       val = answerText;
     }
     if (!val) return null;

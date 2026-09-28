@@ -4,6 +4,8 @@ import {
   saveProfile,
   getResumes,
   saveResume,
+  getProfileDocument,
+  assignLegacyDocuments,
   getManualMappingsByDomain,
   saveManualMapping,
   getLearningMappings,
@@ -25,36 +27,53 @@ import {
   ScannedFieldMetadata,
 } from '../shared/ai';
 import { learnUserCorrection } from '../shared/learning';
-import { UserProfile } from '../shared/types';
+import { ProfileDocumentType, UserProfile } from '../shared/types';
 import { createEmptyStarterProfile, DUMMY_DEMO_PROFILE } from '../shared/profileSeeds';
 import {
+  DEFAULT_COVER_LETTER_FILE_VALUE,
   DEFAULT_RESUME_MATCH_VALUE,
   ResumeFilePayload,
+  scoreCoverLetterFileField,
   scoreResumeFileField,
 } from '../shared/resumeAutofill';
 import { buildExportBundle, parseExportBundle } from '../shared/profileExport';
+import { syncProfilesCache } from '../shared/profilesCache';
 
-async function loadDefaultResumePayload(): Promise<ResumeFilePayload | null> {
-  const resumes = await getResumes();
-  const defaultResume = resumes.find((r) => r.isDefault) || resumes[0];
-  if (!defaultResume?.base64Data?.trim()) return null;
+async function loadProfileDocumentPayload(
+  profileId: string,
+  documentType: ProfileDocumentType
+): Promise<ResumeFilePayload | null> {
+  const doc = await getProfileDocument(profileId, documentType);
+  if (!doc?.base64Data?.trim()) return null;
   return {
-    fileName: defaultResume.fileName,
-    fileType: defaultResume.fileType,
-    base64Data: defaultResume.base64Data,
+    fileName: doc.fileName,
+    fileType: doc.fileType,
+    base64Data: doc.base64Data,
   };
 }
 
-function assignResumeMatch(
+function assignFileDocumentMatch(
   matches: Record<string, MatchResult>,
   scanId: string,
-  confidence: number
+  confidence: number,
+  kind: ProfileDocumentType
 ): void {
   matches[scanId] = {
-    fieldPath: 'system.resume',
+    fieldPath: kind === 'resume' ? 'system.resume' : 'system.coverLetterFile',
     confidence,
-    matchedValue: DEFAULT_RESUME_MATCH_VALUE,
+    matchedValue:
+      kind === 'resume' ? DEFAULT_RESUME_MATCH_VALUE : DEFAULT_COVER_LETTER_FILE_VALUE,
   };
+}
+
+async function refreshProfilesCache(): Promise<void> {
+  await syncProfilesCache(await getProfiles());
+}
+
+async function prepareStoredData(): Promise<void> {
+  await initDb();
+  await assignLegacyDocuments(await getActiveProfileId());
+  await refreshProfilesCache();
 }
 
 function getEffectiveGeminiApiKey(settings: { ai: { geminiApiKey?: string } }): string {
@@ -78,9 +97,16 @@ chrome.runtime.onInstalled.addListener(async () => {
     if (profiles.length === 0) {
       await saveProfile(createEmptyStarterProfile());
     }
+    await prepareStoredData();
   } catch (err) {
     console.error('Database initialization failed on install:', err);
   }
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  void prepareStoredData().catch((err) => {
+    console.error('Startup data preparation failed:', err);
+  });
 });
 
 chrome.commands.onCommand.addListener(async (command) => {
@@ -89,11 +115,12 @@ chrome.commands.onCommand.addListener(async (command) => {
   const tabId = tabs[0]?.id;
   if (!tabId) return;
   const profileId = await getActiveProfileId();
-  chrome.tabs.sendMessage(tabId, {
-    action: 'triggerAutofill',
-    profileId,
-    force: false,
-  });
+  chrome.tabs.sendMessage(
+    tabId,
+    { action: 'triggerAutofill', profileId, force: false },
+    { frameId: 0 },
+    () => void chrome.runtime.lastError
+  );
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -115,12 +142,14 @@ async function handleMessage(
         break;
 
       case 'notifyDataUpdated':
+        await refreshProfilesCache();
         notifyContentScriptsDataUpdated();
         sendResponse({ success: true });
         break;
 
       case 'getProfiles': {
         const profiles = await getProfiles();
+        await syncProfilesCache(profiles);
         sendResponse({ profiles });
         break;
       }
@@ -140,6 +169,7 @@ async function handleMessage(
 
       case 'saveProfile': {
         await saveProfile(message.profile);
+        await refreshProfilesCache();
         notifyContentScriptsDataUpdated();
         sendResponse({ success: true });
         break;
@@ -184,9 +214,12 @@ async function handleMessage(
         break;
       }
 
-      case 'getDefaultResume': {
-        const resume = await loadDefaultResumePayload();
-        sendResponse({ resume });
+      case 'getProfileDocument': {
+        const profileId = message.profileId || (await getActiveProfileId());
+        const documentType: ProfileDocumentType =
+          message.documentType === 'coverLetter' ? 'coverLetter' : 'resume';
+        const resume = await loadProfileDocumentPayload(profileId, documentType);
+        sendResponse({ resume, documentType });
         break;
       }
 
@@ -205,6 +238,8 @@ async function handleMessage(
         for (const resume of bundle.resumes) {
           await saveResume(resume);
         }
+        await assignLegacyDocuments(await getActiveProfileId());
+        await refreshProfilesCache();
         notifyContentScriptsDataUpdated();
         sendResponse({ success: true, profileCount: bundle.profiles.length });
         break;
@@ -244,14 +279,21 @@ async function handleMessage(
           settings.ai.useJobDescriptionContext !== false && jobDescription.length > 0;
         const jdContext = useJobDescription ? jobDescription : '';
 
-        const defaultResumeReady = Boolean(await loadDefaultResumePayload());
+        const resumeReady = Boolean(await loadProfileDocumentPayload(profile.id, 'resume'));
+        const coverLetterFileReady = Boolean(
+          await loadProfileDocumentPayload(profile.id, 'coverLetter')
+        );
 
         const applyHeuristicMatch = async (field: ScannedFieldMetadata) => {
           const heur = matchFieldHeuristically(field, profile, learningMappings);
           if (!heur) return;
           if (heur.fieldPath === 'system.resume') {
-            if (defaultResumeReady) {
-              assignResumeMatch(matches, field.scanId, heur.confidence);
+            if (resumeReady) {
+              assignFileDocumentMatch(matches, field.scanId, heur.confidence, 'resume');
+            }
+          } else if (heur.fieldPath === 'system.coverLetterFile') {
+            if (coverLetterFileReady) {
+              assignFileDocumentMatch(matches, field.scanId, heur.confidence, 'coverLetter');
             }
           } else {
             matches[field.scanId] = heur;
@@ -292,10 +334,27 @@ async function handleMessage(
           await applyHeuristicMatch(field);
         }
 
+        const isUnmatchedFile = (f: ScannedFieldMetadata) =>
+          f.type === 'file' && !matches[f.scanId]?.matchedValue?.trim();
+
+        const coverCandidates = fields
+          .filter((f) => isUnmatchedFile(f) && scoreCoverLetterFileField(f) >= 80)
+          .sort((a, b) => scoreCoverLetterFileField(b) - scoreCoverLetterFileField(a));
+        if (coverCandidates[0] && coverLetterFileReady) {
+          const top = coverCandidates[0];
+          assignFileDocumentMatch(
+            matches,
+            top.scanId,
+            Math.min(0.95, 0.75 + scoreCoverLetterFileField(top) / 400),
+            'coverLetter'
+          );
+        }
+
+        const hasResumeMatch = Object.values(matches).some((m) => m.fieldPath === 'system.resume');
         const unmatchedFileFields = fields.filter(
-          (f) => f.type === 'file' && !matches[f.scanId]?.matchedValue?.trim()
+          (f) => isUnmatchedFile(f) && scoreCoverLetterFileField(f) < 80
         );
-        if (unmatchedFileFields.length > 0 && defaultResumeReady) {
+        if (unmatchedFileFields.length > 0 && resumeReady && !hasResumeMatch) {
           const ranked = unmatchedFileFields
             .map((f) => ({ field: f, score: scoreResumeFileField(f) }))
             .sort((a, b) => b.score - a.score);
@@ -306,7 +365,12 @@ async function handleMessage(
             top.score >= 90 ||
             (top.score >= 50 && (!second || top.score >= second.score + 12));
           if (pick && top.score >= 35) {
-            assignResumeMatch(matches, top.field.scanId, Math.min(0.95, 0.75 + top.score / 400));
+            assignFileDocumentMatch(
+              matches,
+              top.field.scanId,
+              Math.min(0.95, 0.75 + top.score / 400),
+              'resume'
+            );
           }
         }
 
@@ -332,6 +396,7 @@ async function handleMessage(
           if (!existing?.matchedValue?.trim()) continue;
           if (
             existing.fieldPath === AI_GENERATED_FIELD_PATH ||
+            existing.fieldPath === 'professional.coverLetter' ||
             existing.fieldPath.startsWith('custom:')
           ) {
             continue;
@@ -343,8 +408,7 @@ async function handleMessage(
         const provider = settings.ai.provider;
         const hasApiKey = Boolean(apiKey);
         const offlineOnly = provider === 'heuristic';
-        const wantsGemini =
-          !offlineOnly && hasApiKey;
+        const wantsGemini = !offlineOnly && hasApiKey && message.manual !== false;
         const wantsGeminiAnswers =
           wantsGemini && settings.ai.answerOpenQuestions !== false;
 
@@ -402,6 +466,7 @@ async function handleMessage(
               profileId,
               force: message.force === true,
             },
+            { frameId: 0 },
             (response) => {
               if (chrome.runtime.lastError) {
                 sendResponse({

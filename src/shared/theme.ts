@@ -23,9 +23,37 @@ export function applyResolvedTheme(resolved: ResolvedTheme, root?: HTMLElement |
   el.dataset.theme = resolved;
 }
 
+const THEME_CACHE_KEY = 'oneclick_ui_theme';
+
+function isThemeSetting(value: unknown): value is AppSettings['theme'] {
+  return value === 'light' || value === 'dark' || value === 'system';
+}
+
+/** Synchronous copy for extension pages so the first paint uses the saved theme. */
+export function readCachedThemeSetting(): AppSettings['theme'] | null {
+  try {
+    const value = localStorage.getItem(THEME_CACHE_KEY);
+    return isThemeSetting(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function cacheThemeSetting(setting: AppSettings['theme']): void {
+  try {
+    localStorage.setItem(THEME_CACHE_KEY, setting);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+/** Without a root this targets the extension page itself, so the choice is cached there. */
 export function applyThemeSetting(setting: AppSettings['theme'], root?: HTMLElement | null): ResolvedTheme {
   const resolved = resolveTheme(setting);
   applyResolvedTheme(resolved, root);
+  if (!root) {
+    cacheThemeSetting(setting);
+  }
   return resolved;
 }
 

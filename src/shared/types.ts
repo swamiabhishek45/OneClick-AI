@@ -22,6 +22,8 @@ export interface ProfessionalInfo {
   linkedin: string;
   github: string;
   portfolio: string;
+  /** Plain-text cover letter for textarea fields */
+  coverLetter?: string;
 }
 
 export interface JobInfo {
@@ -67,6 +69,8 @@ export interface UserProfile {
   isDefault?: boolean;
 }
 
+export type ProfileDocumentType = 'resume' | 'coverLetter';
+
 export interface Resume {
   id: string;
   name: string;
@@ -74,6 +78,10 @@ export interface Resume {
   fileType: string; // 'pdf' | 'docx'
   base64Data: string; // Base64 data content of file
   uploadedAt: string;
+  /** Owning profile; legacy files without one are assigned on startup */
+  profileId?: string;
+  documentType?: ProfileDocumentType;
+  /** Active file for autofill within this profile + documentType */
   isDefault?: boolean;
 }
 

@@ -2,6 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Sparkles, ExternalLink, ShieldCheck, RefreshCcw } from 'lucide-react';
 import { UserProfile } from '../shared/types';
 import { ExtensionLogo } from '../shared/ExtensionLogo';
+import {
+  fetchActiveProfileIdForUi,
+  fetchProfilesForUi,
+  resolveActiveProfileId,
+} from '../shared/profilesCache';
 
 export default function PopupApp() {
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
@@ -16,25 +21,21 @@ export default function PopupApp() {
       if (activeTab?.url) {
         try {
           const url = new URL(activeTab.url);
-          setCurrentDomain(url.hostname);
+          setCurrentDomain(/^https?:$/.test(url.protocol) ? url.hostname : '');
         } catch {
           setCurrentDomain('');
         }
       }
     });
 
-    chrome.runtime.sendMessage({ action: 'getProfiles' }, (response) => {
-      if (response?.profiles) {
-        setProfiles(response.profiles);
-      }
-    });
-
-    chrome.runtime.sendMessage({ action: 'getActiveProfileId' }, (response) => {
-      if (response?.activeProfileId) {
-        setActiveProfileId(response.activeProfileId);
-      }
-    });
+    void (async () => {
+      const list = await fetchProfilesForUi();
+      setProfiles(list);
+      setActiveProfileId(resolveActiveProfileId(list, await fetchActiveProfileIdForUi()));
+    })();
   }, []);
+
+  const selectedProfileId = resolveActiveProfileId(profiles, activeProfileId);
 
   const handleProfileChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const id = e.target.value;
@@ -51,9 +52,10 @@ export default function PopupApp() {
     chrome.runtime.sendMessage(
       {
         action: 'autofillPage',
-        profileId: activeProfileId,
+        profileId: selectedProfileId,
       },
       (response) => {
+        void chrome.runtime.lastError;
         setIsFilling(false);
         if (response?.success && (response.filledCount ?? 0) > 0) {
           showStatus(
@@ -102,14 +104,14 @@ export default function PopupApp() {
               Active profile
             </label>
             <select
-              value={activeProfileId}
+              value={selectedProfileId}
               onChange={handleProfileChange}
               className="w-full ui-input rounded-lg px-2.5 py-1.5 text-xs cursor-pointer"
             >
               {profiles.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
-              {profiles.length === 0 && <option value="default">Default Profile</option>}
+              {profiles.length === 0 && <option value="default">No profiles, open Dashboard</option>}
             </select>
           </div>
 

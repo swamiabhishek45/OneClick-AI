@@ -23,7 +23,10 @@ import {
   deleteProfile,
   getResumes,
   saveResume,
-  deleteResume,
+  setActiveProfileDocument,
+  deleteProfileDocument,
+  deleteProfileDocuments,
+  getDocumentType,
   getManualMappings,
   deleteManualMapping,
   getAppSettings,
@@ -39,6 +42,8 @@ import {
   EducationInfo,
   CustomField,
   CustomFieldSection,
+  ProfessionalInfo,
+  ProfileDocumentType,
 } from '../shared/types';
 import { ExtensionLogo } from '../shared/ExtensionLogo';
 import { applyThemeSetting } from '../shared/theme';
@@ -59,6 +64,34 @@ const emptyEducation = (): EducationInfo => ({
   ug: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
   pg: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
 });
+
+const emptyProfessional = (): ProfessionalInfo => ({
+  jobTitle: '',
+  experience: '',
+  currentCompany: '',
+  skills: '',
+  education: '',
+  degree: '',
+  college: '',
+  linkedin: '',
+  github: '',
+  portfolio: '',
+  coverLetter: '',
+});
+
+const DOCUMENT_LABELS: Record<ProfileDocumentType, { title: string; empty: string }> = {
+  resume: { title: 'Resumes', empty: 'No resumes uploaded yet.' },
+  coverLetter: { title: 'Cover letters', empty: 'No cover letter files uploaded yet.' },
+};
+
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
 
 function sendBackgroundMessage<T>(payload: object): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -100,18 +133,7 @@ export default function OptionsApp() {
     country: '',
     postalCode: '',
   });
-  const [professional, setProfessional] = useState({
-    jobTitle: '',
-    experience: '',
-    currentCompany: '',
-    skills: '',
-    education: '',
-    degree: '',
-    college: '',
-    linkedin: '',
-    github: '',
-    portfolio: '',
-  });
+  const [professional, setProfessional] = useState<ProfessionalInfo>(emptyProfessional());
   const [jobInfo, setJobInfo] = useState({
     currentCTC: '',
     expectedCTC: '',
@@ -148,6 +170,7 @@ export default function OptionsApp() {
       setResumes(await getResumes());
       setManualMappings(await getManualMappings());
       setAppSettingsState(await getAppSettings());
+      notifyDataUpdated();
     } catch (e) {
       console.error('Failed to load options data', e);
     }
@@ -157,7 +180,7 @@ export default function OptionsApp() {
     if (profile) {
       setProfileName(profile.name);
       setPersonal(profile.personal);
-      setProfessional(profile.professional);
+      setProfessional({ ...emptyProfessional(), ...profile.professional });
       setJobInfo(profile.jobInfo);
       setCustomFields(
         (profile.customFields || []).map((f) => ({
@@ -180,18 +203,7 @@ export default function OptionsApp() {
         country: '',
         postalCode: '',
       });
-      setProfessional({
-        jobTitle: '',
-        experience: '',
-        currentCompany: '',
-        skills: '',
-        education: '',
-        degree: '',
-        college: '',
-        linkedin: '',
-        github: '',
-        portfolio: '',
-      });
+      setProfessional(emptyProfessional());
       setJobInfo({ currentCTC: '', expectedCTC: '', noticePeriod: '', preferredLocation: '' });
       setCustomFields([]);
       setEducation(emptyEducation());
@@ -205,7 +217,9 @@ export default function OptionsApp() {
 
   const notifyDataUpdated = () => {
     if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-      chrome.runtime.sendMessage({ action: 'notifyDataUpdated' });
+      chrome.runtime.sendMessage({ action: 'notifyDataUpdated' }, () => {
+        void chrome.runtime.lastError;
+      });
     }
   };
 
@@ -265,6 +279,8 @@ export default function OptionsApp() {
     if (confirm('Are you sure you want to delete this profile?')) {
       try {
         await deleteProfile(id);
+        await deleteProfileDocuments(id);
+        setResumes(await getResumes());
         showStatus('Profile deleted successfully!');
 
         const allProfiles = await getProfiles();
@@ -318,60 +334,73 @@ export default function OptionsApp() {
     setCustomFields((prevFields) => prevFields.filter((_, idx) => idx !== index));
   };
 
-  const handleResumeUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const isSelectedProfileSaved = profiles.some((p) => p.id === selectedProfileId);
 
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const base64Data = (reader.result as string).split(',')[1];
-        const newResume: Resume = {
+  const getDocumentsFor = (documentType: ProfileDocumentType) =>
+    resumes
+      .filter((r) => r.profileId === selectedProfileId && getDocumentType(r) === documentType)
+      .sort((a, b) => (b.uploadedAt || '').localeCompare(a.uploadedAt || ''));
+
+  const handleDocumentUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    documentType: ProfileDocumentType
+  ) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (files.length === 0) return;
+    if (!isSelectedProfileSaved) {
+      showStatus('Save this profile before uploading files', 'error');
+      return;
+    }
+
+    try {
+      let hasActive = getDocumentsFor(documentType).some((r) => r.isDefault);
+      for (const file of files) {
+        const base64Data = await readFileAsBase64(file);
+        const doc: Resume = {
           id: Math.random().toString(36).substring(2),
-          name: file.name.split('.')[0],
+          name: file.name.replace(/\.[^.]+$/, ''),
           fileName: file.name,
           fileType: (file.name.split('.').pop() || 'pdf').toLowerCase(),
           base64Data,
           uploadedAt: new Date().toISOString(),
-          isDefault: resumes.length === 0,
+          profileId: selectedProfileId,
+          documentType,
+          isDefault: !hasActive,
         };
-
-        await saveResume(newResume);
-        showStatus('Resume uploaded successfully!');
-        setResumes(await getResumes());
-        notifyDataUpdated();
-      } catch {
-        showStatus('Failed to save resume', 'error');
+        await saveResume(doc);
+        hasActive = true;
       }
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
-  };
-
-  const handleDeleteResume = async (id: string) => {
-    if (confirm('Delete this resume?')) {
-      try {
-        await deleteResume(id);
-        showStatus('Resume deleted successfully!');
-        setResumes(await getResumes());
-        notifyDataUpdated();
-      } catch {
-        showStatus('Failed to delete resume', 'error');
-      }
+      setResumes(await getResumes());
+      showStatus(
+        files.length === 1 ? 'File uploaded' : `${files.length} files uploaded`
+      );
+      notifyDataUpdated();
+    } catch {
+      showStatus('Failed to save file', 'error');
     }
   };
 
-  const handleSetDefaultResume = async (id: string) => {
+  const handleDeleteDocument = async (id: string) => {
+    if (!confirm('Delete this file?')) return;
     try {
-      const updated = resumes.map((r) => ({ ...r, isDefault: r.id === id }));
-      for (const r of updated) {
-        await saveResume(r);
-      }
-      setResumes(updated);
-      showStatus('Default resume updated!');
+      await deleteProfileDocument(id);
+      setResumes(await getResumes());
+      showStatus('File deleted');
       notifyDataUpdated();
     } catch {
-      showStatus('Failed to update default resume', 'error');
+      showStatus('Failed to delete file', 'error');
+    }
+  };
+
+  const handleSetActiveDocument = async (id: string) => {
+    try {
+      await setActiveProfileDocument(id);
+      setResumes(await getResumes());
+      showStatus('Active file updated for autofill');
+      notifyDataUpdated();
+    } catch {
+      showStatus('Failed to update active file', 'error');
     }
   };
 
@@ -504,7 +533,7 @@ export default function OptionsApp() {
           <div className="flex justify-between items-center ui-inset-panel">
             <div className="text-[10px] ui-muted">
               <p className="font-semibold">{profiles.length} Profiles</p>
-              <p className="mt-0.5">{resumes.length} Resumes</p>
+              <p className="mt-0.5">{resumes.length} Files</p>
             </div>
             <div className="text-[10px] text-brand-700 dark:text-cream-200 font-medium bg-cream-100 dark:bg-brand-950/50 px-2 py-1 rounded border ui-border-subtle">
               Stored locally
@@ -799,6 +828,17 @@ export default function OptionsApp() {
                         className={profileTextareaClass}
                       />
                     </ProfileField>
+                    <ProfileField label="Cover Letter (text)" span="full">
+                      <textarea
+                        value={professional.coverLetter || ''}
+                        onChange={(e) =>
+                          setProfessional({ ...professional, coverLetter: e.target.value })
+                        }
+                        rows={6}
+                        placeholder="Pasted into cover letter text boxes on application forms"
+                        className={profileTextareaClass}
+                      />
+                    </ProfileField>
                     <SectionCustomFields
                       section="professional"
                       fields={customFields}
@@ -936,73 +976,88 @@ export default function OptionsApp() {
                   </div>
                 </ProfileSection>
 
-                <ProfileSection icon={FileText} title="Resumes">
-                  <div className="flex flex-col gap-4">
-                    <div className="ui-dropzone p-8 text-center flex flex-col items-center justify-center gap-3 relative">
-                      <HardDriveDownload className="w-10 h-10 text-brand-400" />
-                      <div>
-                        <p className="text-xs font-semibold text-brand-800 dark:text-cream-100">
-                          Upload Resume PDF/DOCX
-                        </p>
-                        <p className="ui-caption mt-1">
-                          Files are stored locally in this browser.
-                        </p>
-                      </div>
-                      <input
-                        type="file"
-                        accept=".pdf,.docx"
-                        onChange={handleResumeUpload}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                      />
-                    </div>
+                <ProfileSection icon={FileText} title="Resume & Cover Letter Files">
+                  {!isSelectedProfileSaved && (
+                    <p className="ui-caption mb-3">Save this profile first to attach files to it.</p>
+                  )}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {(['resume', 'coverLetter'] as ProfileDocumentType[]).map((documentType) => {
+                      const docs = getDocumentsFor(documentType);
+                      const { title, empty } = DOCUMENT_LABELS[documentType];
+                      return (
+                        <div key={documentType} className="flex flex-col gap-3 min-w-0">
+                          <h4 className="ui-section-label">{title}</h4>
+                          <div className="ui-dropzone p-6 text-center flex flex-col items-center justify-center gap-2 relative">
+                            <HardDriveDownload className="w-8 h-8 text-brand-400" />
+                            <p className="text-xs font-semibold text-brand-800 dark:text-cream-100">
+                              Upload {documentType === 'resume' ? 'resume' : 'cover letter'} PDF/DOCX
+                            </p>
+                            <p className="ui-caption">
+                              Add several files, then choose which one is active for autofill.
+                            </p>
+                            <input
+                              type="file"
+                              accept=".pdf,.doc,.docx"
+                              multiple
+                              disabled={!isSelectedProfileSaved}
+                              onChange={(e) => void handleDocumentUpload(e, documentType)}
+                              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
+                            />
+                          </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {resumes.map((r) => (
-                        <div
-                          key={r.id}
-                          className="ui-panel rounded-xl p-4 flex justify-between items-center"
-                        >
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className="h-9 w-9 rounded-lg bg-brand-100 dark:bg-brand-700/45 border border-brand-300/50 dark:border-brand-500/40 flex items-center justify-center text-[10px] font-bold text-brand-700 dark:text-cream-100 uppercase shrink-0">
-                              {r.fileType}
-                            </div>
-                            <div className="min-w-0">
-                              <p className="text-xs font-semibold ui-heading truncate">{r.name}</p>
-                              <p className="ui-caption mt-0.5">
-                                Uploaded {new Date(r.uploadedAt).toLocaleDateString()}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0 ml-2">
-                            {r.isDefault ? (
-                              <span className="ui-badge flex items-center gap-1">
-                                <Star className="w-3 h-3 fill-brand-400" />
-                                Default
-                              </span>
-                            ) : (
-                              <button
-                                onClick={() => handleSetDefaultResume(r.id)}
-                                className="text-[9px] font-semibold ui-muted hover:text-brand-700 dark:hover:text-cream-100 hover:underline cursor-pointer flex items-center gap-1"
+                          <div className="flex flex-col gap-2">
+                            {docs.map((r) => (
+                              <div
+                                key={r.id}
+                                className="ui-panel rounded-xl p-3 flex justify-between items-center"
                               >
-                                <Star className="w-3 h-3" />
-                                Set Default
-                              </button>
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <div className="h-9 w-9 rounded-lg bg-brand-100 dark:bg-brand-700/45 border border-brand-300/50 dark:border-brand-500/40 flex items-center justify-center text-[10px] font-bold text-brand-700 dark:text-cream-100 uppercase shrink-0">
+                                    {r.fileType}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="text-xs font-semibold ui-heading truncate" title={r.fileName}>
+                                      {r.name}
+                                    </p>
+                                    <p className="ui-caption mt-0.5">
+                                      Uploaded {new Date(r.uploadedAt).toLocaleDateString()}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0 ml-2">
+                                  {r.isDefault ? (
+                                    <span className="ui-badge flex items-center gap-1">
+                                      <Star className="w-3 h-3 fill-brand-400" />
+                                      Active
+                                    </span>
+                                  ) : (
+                                    <button
+                                      onClick={() => void handleSetActiveDocument(r.id)}
+                                      className="text-[9px] font-semibold ui-muted hover:text-brand-700 dark:hover:text-cream-100 hover:underline cursor-pointer flex items-center gap-1"
+                                    >
+                                      <Star className="w-3 h-3" />
+                                      Set active
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => void handleDeleteDocument(r.id)}
+                                    title="Delete file"
+                                    className="ui-icon-btn hover:text-rose-500 dark:hover:text-rose-300 ml-1"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                            {docs.length === 0 && (
+                              <div className="text-center py-5 ui-panel-soft rounded-xl ui-empty">
+                                {empty}
+                              </div>
                             )}
-                            <button
-                              onClick={() => handleDeleteResume(r.id)}
-                              className="ui-icon-btn hover:text-rose-500 dark:hover:text-rose-300 ml-1"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
                           </div>
                         </div>
-                      ))}
-                      {resumes.length === 0 && (
-                        <div className="col-span-2 text-center py-6 ui-panel-soft rounded-xl ui-empty">
-                          No resumes uploaded yet.
-                        </div>
-                      )}
-                    </div>
+                      );
+                    })}
                   </div>
                 </ProfileSection>
               </div>
@@ -1153,6 +1208,9 @@ export default function OptionsApp() {
                     const theme = e.target.value as AppSettings['theme'];
                     setAppSettingsState({ ...appSettings, theme });
                     applyThemeSetting(theme);
+                    void getAppSettings().then((stored) =>
+                      saveAppSettings({ ...stored, theme })
+                    );
                   }}
                   className="w-full max-w-xs ui-input rounded-lg p-2 text-xs"
                 >
@@ -1175,21 +1233,6 @@ export default function OptionsApp() {
                   className="rounded border-brand-700/30 dark:border-brand-400/40 dark:bg-brand-950"
                 />
                 Learn from field corrections
-              </label>
-
-              <label className="flex items-center gap-2 text-xs text-brand-800 dark:text-cream-100 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={appSettings.showFillPreview !== false}
-                  onChange={(e) =>
-                    setAppSettingsState({
-                      ...appSettings,
-                      showFillPreview: e.target.checked,
-                    })
-                  }
-                  className="rounded border-brand-700/30 dark:border-brand-400/40 dark:bg-brand-950"
-                />
-                Show fill preview before applying
               </label>
 
               <label className="flex items-center gap-2 text-xs text-brand-800 dark:text-cream-100 cursor-pointer">
