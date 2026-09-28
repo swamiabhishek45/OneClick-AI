@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { Sparkles, Edit3, Settings, Save, X, Minimize2, ToggleLeft, ToggleRight, Key } from 'lucide-react';
 import { UserProfile, DomainRule } from '../shared/types';
 import { ExtensionLogo } from '../shared/ExtensionLogo';
@@ -6,7 +6,10 @@ import { findLoginFields } from './FormScanner';
 
 export default function WidgetApp() {
   const [expanded, setExpanded] = useState(false);
-  const [dragPosition, setDragPosition] = useState({ x: 16, y: 16 }); // offset from bottom-right
+  const [anchorPosition, setAnchorPosition] = useState(() => ({
+    top: Math.max(12, window.innerHeight - 52 - 16),
+    right: 16,
+  }));
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [activeProfileId, setActiveProfileId] = useState('default');
   const [isMappingMode, setIsMappingMode] = useState(false);
@@ -31,26 +34,56 @@ export default function WidgetApp() {
   const PANEL_MAX_HEIGHT = 560;
   const FAB_SIZE = 52;
   const VIEWPORT_MARGIN = 12;
+  const FAB_PANEL_GAP = 8;
 
-  const clampPosition = (pos: { x: number; y: number }, expandedPanel: boolean) => {
-    const panelW = expandedPanel
-      ? Math.min(PANEL_WIDTH, window.innerWidth - VIEWPORT_MARGIN * 2)
-      : FAB_SIZE;
-    const panelH = expandedPanel
-      ? Math.min(PANEL_MAX_HEIGHT, window.innerHeight - VIEWPORT_MARGIN * 2)
-      : FAB_SIZE;
+  const fabAnchorTopRef = useRef(anchorPosition.top);
 
-    return {
-      x: Math.max(
-        VIEWPORT_MARGIN,
-        Math.min(window.innerWidth - panelW - VIEWPORT_MARGIN, pos.x)
-      ),
-      y: Math.max(
-        VIEWPORT_MARGIN,
-        Math.min(window.innerHeight - panelH - VIEWPORT_MARGIN, pos.y)
-      ),
-    };
-  };
+  const getPanelWidthPx = useCallback(
+    () => Math.min(PANEL_WIDTH, window.innerWidth - VIEWPORT_MARGIN * 2),
+    []
+  );
+
+  const clampAnchor = useCallback(
+    (top: number, right: number, height: number, width?: number) => {
+      const w = width ?? getPanelWidthPx();
+      const maxTop = window.innerHeight - height - VIEWPORT_MARGIN;
+      return {
+        top: Math.max(VIEWPORT_MARGIN, Math.min(top, maxTop)),
+        right: Math.max(
+          VIEWPORT_MARGIN,
+          Math.min(right, window.innerWidth - w - VIEWPORT_MARGIN)
+        ),
+      };
+    },
+    [getPanelWidthPx]
+  );
+
+  /** When FAB is near the top, open panel downward so it stays inside the viewport. */
+  const computePanelTop = useCallback(
+    (fabTop: number, panelHeight: number, right: number) => {
+      const maxPanelH = Math.min(panelHeight, window.innerHeight - VIEWPORT_MARGIN * 2);
+      const spaceBelow =
+        window.innerHeight - (fabTop + FAB_SIZE + FAB_PANEL_GAP) - VIEWPORT_MARGIN;
+      const openBelow =
+        spaceBelow >= Math.min(maxPanelH, 220) || fabTop < window.innerHeight * 0.42;
+
+      const top = openBelow
+        ? fabTop + FAB_SIZE + FAB_PANEL_GAP
+        : fabTop - maxPanelH - FAB_PANEL_GAP;
+
+      return clampAnchor(top, right, maxPanelH).top;
+    },
+    [clampAnchor]
+  );
+
+  const repositionExpandedPanel = useCallback(() => {
+    if (!panelRef.current) return;
+    const panelHeight = panelRef.current.offsetHeight || PANEL_MAX_HEIGHT;
+    setAnchorPosition((prev) => {
+      const panelTop = computePanelTop(fabAnchorTopRef.current, panelHeight, prev.right);
+      return clampAnchor(panelTop, prev.right, panelHeight, getPanelWidthPx());
+    });
+  }, [clampAnchor, computePanelTop, getPanelWidthPx]);
 
   // Fetch profiles and configuration on mount
   useEffect(() => {
@@ -80,16 +113,42 @@ export default function WidgetApp() {
 
   useEffect(() => {
     const onResize = () => {
-      setDragPosition((prev) => clampPosition(prev, expanded));
+      if (expanded) {
+        repositionExpandedPanel();
+      } else {
+        setAnchorPosition((prev) =>
+          clampAnchor(prev.top, prev.right, FAB_SIZE, FAB_SIZE)
+        );
+      }
     };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, [expanded]);
+  }, [expanded, clampAnchor, repositionExpandedPanel]);
+
+  useLayoutEffect(() => {
+    if (!expanded) return;
+    repositionExpandedPanel();
+  }, [expanded, repositionExpandedPanel, statusMessage]);
 
   useEffect(() => {
-    if (!expanded) return;
-    setDragPosition((prev) => clampPosition(prev, true));
-  }, [expanded]);
+    if (!expanded || !panelRef.current) return;
+    const observer = new ResizeObserver(() => repositionExpandedPanel());
+    observer.observe(panelRef.current);
+    return () => observer.disconnect();
+  }, [expanded, repositionExpandedPanel]);
+
+  const openPanel = () => {
+    fabAnchorTopRef.current = anchorPosition.top;
+    setHasPasswordField(document.querySelector('input[type="password"]') !== null);
+    setExpanded(true);
+  };
+
+  const minimizePanel = () => {
+    setExpanded(false);
+    setAnchorPosition((prev) =>
+      clampAnchor(fabAnchorTopRef.current, prev.right, FAB_SIZE, FAB_SIZE)
+    );
+  };
 
   const loadData = () => {
     // Get list of profiles
@@ -125,8 +184,8 @@ export default function WidgetApp() {
     dragStartRef.current = {
       x: e.clientX,
       y: e.clientY,
-      posX: dragPosition.x,
-      posY: dragPosition.y,
+      posX: anchorPosition.right,
+      posY: anchorPosition.top,
     };
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
@@ -144,21 +203,28 @@ export default function WidgetApp() {
 
   const handleMouseMove = (e: MouseEvent) => {
     const deltaX = e.clientX - dragStartRef.current.x;
-    const deltaY = dragStartRef.current.y - e.clientY; // moving up increases offset from bottom
+    const deltaY = e.clientY - dragStartRef.current.y;
 
     if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) {
       isDraggingRef.current = true;
     }
 
-    setDragPosition(
-      clampPosition(
-        {
-          x: dragStartRef.current.posX - deltaX,
-          y: dragStartRef.current.posY + deltaY,
-        },
-        expanded
-      )
+    const height = expanded
+      ? panelRef.current?.offsetHeight || PANEL_MAX_HEIGHT
+      : FAB_SIZE;
+    const width = expanded ? getPanelWidthPx() : FAB_SIZE;
+
+    const next = clampAnchor(
+      dragStartRef.current.posY + deltaY,
+      dragStartRef.current.posX - deltaX,
+      height,
+      width
     );
+
+    setAnchorPosition(next);
+    if (!expanded) {
+      fabAnchorTopRef.current = next.top;
+    }
   };
 
   const handleMouseUp = () => {
@@ -252,6 +318,7 @@ export default function WidgetApp() {
         setSelectedElementForMap(target);
         setIsMappingMode(false);
         // Re-open widget but focused on custom mapping form
+        fabAnchorTopRef.current = anchorPosition.top;
         setExpanded(true);
       }
     };
@@ -388,8 +455,9 @@ export default function WidgetApp() {
     <div
       className="fixed z-[9999999] select-none font-sans text-slate-100 antialiased"
       style={{
-        bottom: `${dragPosition.y}px`,
-        right: `${dragPosition.x}px`,
+        top: `${anchorPosition.top}px`,
+        right: `${anchorPosition.right}px`,
+        bottom: 'auto',
         maxWidth: panelWidth,
       }}
     >
@@ -400,8 +468,7 @@ export default function WidgetApp() {
           onMouseDown={handleFabMouseDown}
           onClick={() => {
             if (!isDraggingRef.current) {
-              setExpanded(true);
-              setHasPasswordField(document.querySelector('input[type="password"]') !== null);
+              openPanel();
             }
           }}
           className={`flex h-[52px] w-[52px] items-center justify-center rounded-full overflow-hidden shadow-lg shadow-brand-500/30 transition-transform active:scale-95 cursor-pointer hover:shadow-brand-500/50 hover:brightness-110 border-2 border-brand-400/40 bg-slate-950 ${
@@ -576,7 +643,7 @@ export default function WidgetApp() {
                 <Settings className="w-5 h-5" />
               </button>
               <button
-                onClick={() => setExpanded(false)}
+                onClick={minimizePanel}
                 title="Minimize"
                 className="p-2 rounded-lg hover:bg-slate-800/80 text-slate-400 hover:text-slate-100 transition cursor-pointer"
               >
