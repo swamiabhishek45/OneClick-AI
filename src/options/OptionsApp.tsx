@@ -1,38 +1,51 @@
-import { 
-  User, Briefcase, Settings, History, FileText, Plus, Trash2, 
-  Save, CheckCircle, Database, ShieldAlert, Award, FileCode, Search, Copy, 
-  Settings2, HelpCircle, HardDriveDownload, CloudLightning, ArrowUpRight, Sliders, GraduationCap,
-  Key, Eye, EyeOff, Star
+import {
+  User,
+  Briefcase,
+  Settings,
+  FileText,
+  Plus,
+  Trash2,
+  Save,
+  Database,
+  Award,
+  Search,
+  Settings2,
+  HardDriveDownload,
+  Sliders,
+  GraduationCap,
+  Star,
+  Download,
+  Upload,
 } from 'lucide-react';
-import { 
-  getProfiles, saveProfile, deleteProfile,
-  getResumes, saveResume, deleteResume,
-  getTemplates, deleteTemplate,
-  getManualMappings, deleteManualMapping,
-  getHistory, clearHistory,
-  getAppSettings, saveAppSettings, getActiveProfileId, setActiveProfileId,
-  getCredentials, deleteCredential
+import {
+  getProfiles,
+  saveProfile,
+  deleteProfile,
+  getResumes,
+  saveResume,
+  deleteResume,
+  getManualMappings,
+  deleteManualMapping,
+  getAppSettings,
+  saveAppSettings,
+  getActiveProfileId,
+  setActiveProfileId,
 } from '../shared/db';
 import {
   UserProfile,
   Resume,
-  WebsiteTemplate,
   ManualMapping,
-  FillHistoryEntry,
   AppSettings,
   EducationInfo,
-  SavedCredential,
   CustomField,
   CustomFieldSection,
 } from '../shared/types';
 import { ExtensionLogo } from '../shared/ExtensionLogo';
 import { applyThemeSetting } from '../shared/theme';
-import type { AppSettings as AppSettingsType } from '../shared/types';
 import { SectionCustomFields } from './SectionCustomFields';
 import {
   ProfileSection,
   ProfileField,
-  EducationSubBlock,
   profileSectionGridClass,
   profileInputClass,
   profileTextareaClass,
@@ -40,43 +53,73 @@ import {
 
 import React, { useState, useEffect } from 'react';
 
+const emptyEducation = (): EducationInfo => ({
+  tenth: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
+  twelfthOrDiploma: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
+  ug: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
+  pg: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
+});
+
+function sendBackgroundMessage<T>(payload: object): Promise<T> {
+  return new Promise((resolve, reject) => {
+    if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) {
+      reject(new Error('Extension runtime unavailable'));
+      return;
+    }
+    chrome.runtime.sendMessage(payload, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(chrome.runtime.lastError);
+        return;
+      }
+      resolve(response as T);
+    });
+  });
+}
+
 export default function OptionsApp() {
-  const [activeTab, setActiveTab] = useState<'profiles' | 'resumes' | 'templates' | 'history' | 'settings' | 'credentials'>('profiles');
+  const [activeTab, setActiveTab] = useState<'profiles' | 'settings'>('profiles');
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState('default');
   const [resumes, setResumes] = useState<Resume[]>([]);
-  const [templates, setTemplates] = useState<WebsiteTemplate[]>([]);
   const [manualMappings, setManualMappings] = useState<ManualMapping[]>([]);
-  const [history, setHistory] = useState<FillHistoryEntry[]>([]);
   const [appSettings, setAppSettingsState] = useState<AppSettings | null>(null);
   const [activeProfileIdState, setActiveProfileIdState] = useState('default');
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
-  const [credentials, setCredentials] = useState<SavedCredential[]>([]);
-  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
+  const [searchQuery, setSearchQuery] = useState('');
 
-  // Profile Form states
   const [profileName, setProfileName] = useState('');
   const [personal, setPersonal] = useState({
-    fullName: '', firstName: '', lastName: '', email: '', phone: '',
-    address: '', city: '', state: '', country: '', postalCode: ''
+    fullName: '',
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    address: '',
+    city: '',
+    state: '',
+    country: '',
+    postalCode: '',
   });
   const [professional, setProfessional] = useState({
-    jobTitle: '', experience: '', currentCompany: '', skills: '',
-    education: '', degree: '', college: '', linkedin: '', github: '', portfolio: ''
+    jobTitle: '',
+    experience: '',
+    currentCompany: '',
+    skills: '',
+    education: '',
+    degree: '',
+    college: '',
+    linkedin: '',
+    github: '',
+    portfolio: '',
   });
   const [jobInfo, setJobInfo] = useState({
-    currentCTC: '', expectedCTC: '', noticePeriod: '', preferredLocation: ''
+    currentCTC: '',
+    expectedCTC: '',
+    noticePeriod: '',
+    preferredLocation: '',
   });
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
-  const [education, setEducation] = useState<EducationInfo>({
-    tenth: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
-    twelfthOrDiploma: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
-    ug: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
-    pg: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
-  });
-
-  // Search filter for templates and mappings
-  const [searchQuery, setSearchQuery] = useState('');
+  const [education, setEducation] = useState<EducationInfo>(emptyEducation());
 
   useEffect(() => {
     loadAllData();
@@ -95,31 +138,18 @@ export default function OptionsApp() {
 
       const activeId = await getActiveProfileId();
       setActiveProfileIdState(activeId);
-      
-      // Default to active profile or first profile
-      const targetId = allProfiles.find(p => p.id === activeId) ? activeId : (allProfiles[0]?.id || 'default');
+
+      const targetId = allProfiles.find((p) => p.id === activeId)
+        ? activeId
+        : allProfiles[0]?.id || 'default';
       setSelectedProfileId(targetId);
-      loadProfileToForm(allProfiles.find(p => p.id === targetId) || allProfiles[0]);
+      loadProfileToForm(allProfiles.find((p) => p.id === targetId) || allProfiles[0]);
 
-      const allResumes = await getResumes();
-      setResumes(allResumes);
-
-      const allTemplates = await getTemplates();
-      setTemplates(allTemplates);
-
-      const allMappings = await getManualMappings();
-      setManualMappings(allMappings);
-
-      const allHistory = await getHistory();
-      setHistory(allHistory);
-
-      const settings = await getAppSettings();
-      setAppSettingsState(settings);
-
-      const allCreds = await getCredentials();
-      setCredentials(allCreds);
+      setResumes(await getResumes());
+      setManualMappings(await getManualMappings());
+      setAppSettingsState(await getAppSettings());
     } catch (e) {
-      console.error("Failed to load options data", e);
+      console.error('Failed to load options data', e);
     }
   };
 
@@ -135,24 +165,36 @@ export default function OptionsApp() {
           section: f.section || 'personal',
         }))
       );
-      setEducation(profile.education || {
-        tenth: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
-        twelfthOrDiploma: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
-        ug: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
-        pg: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
-      });
+      setEducation(profile.education || emptyEducation());
     } else {
       setProfileName('New Profile');
-      setPersonal({ fullName: '', firstName: '', lastName: '', email: '', phone: '', address: '', city: '', state: '', country: '', postalCode: '' });
-      setProfessional({ jobTitle: '', experience: '', currentCompany: '', skills: '', education: '', degree: '', college: '', linkedin: '', github: '', portfolio: '' });
+      setPersonal({
+        fullName: '',
+        firstName: '',
+        lastName: '',
+        email: '',
+        phone: '',
+        address: '',
+        city: '',
+        state: '',
+        country: '',
+        postalCode: '',
+      });
+      setProfessional({
+        jobTitle: '',
+        experience: '',
+        currentCompany: '',
+        skills: '',
+        education: '',
+        degree: '',
+        college: '',
+        linkedin: '',
+        github: '',
+        portfolio: '',
+      });
       setJobInfo({ currentCTC: '', expectedCTC: '', noticePeriod: '', preferredLocation: '' });
       setCustomFields([]);
-      setEducation({
-        tenth: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
-        twelfthOrDiploma: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
-        ug: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
-        pg: { schoolOrCollege: '', degree: '', fieldOfStudy: '', passingYear: '', grade: '' },
-      });
+      setEducation(emptyEducation());
     }
   };
 
@@ -161,11 +203,15 @@ export default function OptionsApp() {
     setTimeout(() => setStatusMessage(null), 3000);
   };
 
-  // Profile Management Actions
+  const notifyDataUpdated = () => {
+    if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+      chrome.runtime.sendMessage({ action: 'notifyDataUpdated' });
+    }
+  };
+
   const handleProfileSelect = (id: string) => {
     setSelectedProfileId(id);
-    const prof = profiles.find(p => p.id === id);
-    loadProfileToForm(prof);
+    loadProfileToForm(profiles.find((p) => p.id === id));
   };
 
   const handleCreateProfile = () => {
@@ -188,13 +234,13 @@ export default function OptionsApp() {
 
   const handleSaveProfile = async () => {
     if (!profileName.trim()) {
-      showStatus("Profile name is required", "error");
+      showStatus('Profile name is required', 'error');
       return;
     }
 
     try {
       await saveProfile(buildProfileFromForm());
-      showStatus("Profile saved successfully!");
+      showStatus('Profile saved successfully!');
 
       const allProfiles = await getProfiles();
       setProfiles(allProfiles);
@@ -204,28 +250,26 @@ export default function OptionsApp() {
         setActiveProfileIdState(selectedProfileId);
       }
 
-      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-        chrome.runtime.sendMessage({ action: 'notifyDataUpdated' });
-      }
-    } catch (e) {
-      showStatus("Failed to save profile", "error");
+      notifyDataUpdated();
+    } catch {
+      showStatus('Failed to save profile', 'error');
     }
   };
 
   const handleDeleteProfile = async (id: string) => {
     if (profiles.length <= 1) {
-      showStatus("You must keep at least one profile", "error");
+      showStatus('You must keep at least one profile', 'error');
       return;
     }
 
-    if (confirm("Are you sure you want to delete this profile?")) {
+    if (confirm('Are you sure you want to delete this profile?')) {
       try {
         await deleteProfile(id);
-        showStatus("Profile deleted successfully!");
-        
+        showStatus('Profile deleted successfully!');
+
         const allProfiles = await getProfiles();
         setProfiles(allProfiles);
-        
+
         if (id === activeProfileIdState) {
           const nextActive = allProfiles[0].id;
           await setActiveProfileId(nextActive);
@@ -236,12 +280,9 @@ export default function OptionsApp() {
         setSelectedProfileId(nextSelect);
         loadProfileToForm(allProfiles[0]);
 
-        // Notify other parts of the extension
-        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-          chrome.runtime.sendMessage({ action: 'notifyDataUpdated' });
-        }
-      } catch (e) {
-        showStatus("Failed to delete profile", "error");
+        notifyDataUpdated();
+      } catch {
+        showStatus('Failed to delete profile', 'error');
       }
     }
   };
@@ -250,14 +291,10 @@ export default function OptionsApp() {
     try {
       await setActiveProfileId(id);
       setActiveProfileIdState(id);
-      showStatus("Default active profile updated!");
-      
-      // Notify other parts of the extension
-      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-        chrome.runtime.sendMessage({ action: 'notifyDataUpdated' });
-      }
-    } catch (e) {
-      showStatus("Failed to set active profile", "error");
+      showStatus('Default active profile updated!');
+      notifyDataUpdated();
+    } catch {
+      showStatus('Failed to set active profile', 'error');
     }
   };
 
@@ -272,18 +309,15 @@ export default function OptionsApp() {
     customFields.findIndex((f) => f.id === fieldId);
 
   const handleCustomFieldChange = (index: number, key: 'name' | 'value', val: string) => {
-    setCustomFields(prevFields =>
-      prevFields.map((field, idx) =>
-        idx === index ? { ...field, [key]: val } : field
-      )
+    setCustomFields((prevFields) =>
+      prevFields.map((field, idx) => (idx === index ? { ...field, [key]: val } : field))
     );
   };
 
   const handleRemoveCustomField = (index: number) => {
-    setCustomFields(prevFields => prevFields.filter((_, idx) => idx !== index));
+    setCustomFields((prevFields) => prevFields.filter((_, idx) => idx !== index));
   };
 
-  // Resume Upload Actions
   const handleResumeUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -299,268 +333,206 @@ export default function OptionsApp() {
           fileType: (file.name.split('.').pop() || 'pdf').toLowerCase(),
           base64Data,
           uploadedAt: new Date().toISOString(),
-          isDefault: resumes.length === 0
+          isDefault: resumes.length === 0,
         };
 
         await saveResume(newResume);
-        showStatus("Resume uploaded successfully!");
-        
-        const allResumes = await getResumes();
-        setResumes(allResumes);
-
-        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-          chrome.runtime.sendMessage({ action: 'notifyDataUpdated' });
-        }
-      } catch (err) {
-        showStatus("Failed to save resume", "error");
+        showStatus('Resume uploaded successfully!');
+        setResumes(await getResumes());
+        notifyDataUpdated();
+      } catch {
+        showStatus('Failed to save resume', 'error');
       }
     };
     reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   const handleDeleteResume = async (id: string) => {
-    if (confirm("Delete this resume?")) {
+    if (confirm('Delete this resume?')) {
       try {
         await deleteResume(id);
-        showStatus("Resume deleted successfully!");
-        const allResumes = await getResumes();
-        setResumes(allResumes);
-
-        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-          chrome.runtime.sendMessage({ action: 'notifyDataUpdated' });
-        }
-      } catch (e) {
-        showStatus("Failed to delete resume", "error");
+        showStatus('Resume deleted successfully!');
+        setResumes(await getResumes());
+        notifyDataUpdated();
+      } catch {
+        showStatus('Failed to delete resume', 'error');
       }
-    }
-  };
-
-  // Template & Mappings Management
-  const handleDeleteTemplate = async (id: string) => {
-    if (confirm("Delete template rule?")) {
-      try {
-        await deleteTemplate(id);
-        showStatus("Template removed!");
-        const allTemplates = await getTemplates();
-        setTemplates(allTemplates);
-
-        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-          chrome.runtime.sendMessage({ action: 'notifyDataUpdated' });
-        }
-      } catch (e) {
-        showStatus("Failed to delete template", "error");
-      }
-    }
-  };
-
-  const handleDeleteManualMap = async (id: string) => {
-    if (confirm("Remove manual mapping?")) {
-      try {
-        await deleteManualMapping(id);
-        showStatus("Mapping removed!");
-        const allMappings = await getManualMappings();
-        setManualMappings(allMappings);
-
-        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-          chrome.runtime.sendMessage({ action: 'notifyDataUpdated' });
-        }
-      } catch (e) {
-        showStatus("Failed to delete mapping", "error");
-      }
-    }
-  };
-
-  // History Operations
-  const handleClearHistory = async () => {
-    if (confirm("Clear all form fill history?")) {
-      try {
-        await clearHistory();
-        showStatus("History cleared successfully!");
-        const allHistory = await getHistory();
-        setHistory(allHistory);
-      } catch (e) {
-        showStatus("Failed to clear history", "error");
-      }
-    }
-  };
-
-  // Settings Actions
-  const handleSaveSettings = async () => {
-    if (!appSettings) return;
-    try {
-      await saveAppSettings(appSettings);
-      applyThemeSetting(appSettings.theme);
-      showStatus("Settings saved successfully!");
-    } catch (e) {
-      showStatus("Failed to save settings", "error");
     }
   };
 
   const handleSetDefaultResume = async (id: string) => {
     try {
-      const updated = resumes.map(r => ({
-        ...r,
-        isDefault: r.id === id
-      }));
+      const updated = resumes.map((r) => ({ ...r, isDefault: r.id === id }));
       for (const r of updated) {
         await saveResume(r);
       }
       setResumes(updated);
-      showStatus("Default resume updated!");
-      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-        chrome.runtime.sendMessage({ action: 'notifyDataUpdated' });
-      }
-    } catch (err) {
-      showStatus("Failed to update default resume", "error");
+      showStatus('Default resume updated!');
+      notifyDataUpdated();
+    } catch {
+      showStatus('Failed to update default resume', 'error');
     }
   };
 
-  const handleDeleteCredential = async (id: string) => {
-    if (confirm("Delete this saved password?")) {
+  const handleDeleteManualMap = async (id: string) => {
+    if (confirm('Remove manual mapping?')) {
       try {
-        await deleteCredential(id);
-        showStatus("Credential deleted successfully!");
-        const allCreds = await getCredentials();
-        setCredentials(allCreds);
-        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-          chrome.runtime.sendMessage({ action: 'notifyDataUpdated' });
-        }
-      } catch (err) {
-        showStatus("Failed to delete credential", "error");
+        await deleteManualMapping(id);
+        showStatus('Mapping removed!');
+        setManualMappings(await getManualMappings());
+        notifyDataUpdated();
+      } catch {
+        showStatus('Failed to delete mapping', 'error');
       }
     }
   };
+
+  const handleSaveSettings = async () => {
+    if (!appSettings) return;
+    try {
+      await saveAppSettings(appSettings);
+      applyThemeSetting(appSettings.theme);
+      showStatus('Settings saved successfully!');
+    } catch {
+      showStatus('Failed to save settings', 'error');
+    }
+  };
+
+  const handleExportData = async () => {
+    try {
+      const res = await sendBackgroundMessage<{ bundle: unknown }>({ action: 'exportData' });
+      const blob = new Blob([JSON.stringify(res.bundle, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `oneclick-autofill-export-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showStatus('Export downloaded');
+    } catch {
+      showStatus('Export failed', 'error');
+    }
+  };
+
+  const handleImportData = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        await sendBackgroundMessage<{ success: boolean }>({
+          action: 'importData',
+          json: reader.result as string,
+        });
+        showStatus('Import successful');
+        await loadAllData();
+        notifyDataUpdated();
+      } catch {
+        showStatus('Import failed', 'error');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleClearLearnedMappings = async () => {
+    if (!confirm('Clear all learned field mappings?')) return;
+    try {
+      await sendBackgroundMessage({ action: 'clearLearnedMappings' });
+      showStatus('Learned mappings cleared');
+    } catch {
+      showStatus('Failed to clear learned mappings', 'error');
+    }
+  };
+
+  const filteredManualMappings = manualMappings.filter((m) =>
+    m.domain.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const showAiCredentials =
+    appSettings &&
+    (appSettings.ai.provider === 'hybrid' || appSettings.ai.answerOpenQuestions !== false);
 
   return (
     <div className="flex h-screen ui-page overflow-hidden font-sans">
-      {/* Sidebar Panel */}
       <aside className="w-64 ui-sidebar border-r ui-border-subtle flex flex-col justify-between shrink-0 shadow-sm dark:shadow-none">
         <div>
-          {/* Logo Branding */}
           <div className="p-6 flex items-center gap-2.5 border-b ui-border-subtle">
             <div className="h-9 w-9 shrink-0 rounded-xl overflow-hidden flex items-center justify-center bg-cream border border-brand-800/15 dark:bg-brand-600/35 dark:border-brand-400/35">
               <ExtensionLogo variant="mark" className="h-[85%] w-[85%]" />
             </div>
             <div>
-              <h1 className="font-bold text-sm text-brand-800 dark:text-cream-100 tracking-wide">OneClick AI</h1>
-              <p className="text-[10px] ui-caption uppercase tracking-widest font-semibold mt-0.5">Autofill Engine</p>
+              <h1 className="font-bold text-sm text-brand-800 dark:text-cream-100 tracking-wide">
+                OneClick AI
+              </h1>
+              <p className="text-[10px] ui-caption uppercase tracking-widest font-semibold mt-0.5">
+                Autofill Engine
+              </p>
             </div>
           </div>
 
-          {/* Navigation Links */}
           <nav className="p-4 flex flex-col gap-1.5">
             <button
               onClick={() => setActiveTab('profiles')}
               className={`w-full py-2.5 px-4 rounded-xl text-left text-xs font-semibold flex items-center gap-3 cursor-pointer transition ${
-                activeTab === 'profiles' 
-                  ? 'ui-nav-active' 
-                  : 'ui-nav-idle border border-transparent'
+                activeTab === 'profiles' ? 'ui-nav-active' : 'ui-nav-idle border border-transparent'
               }`}
             >
               <User className="w-4 h-4" />
-              User Profiles
-            </button>
-
-            <button
-              onClick={() => setActiveTab('resumes')}
-              className={`w-full py-2.5 px-4 rounded-xl text-left text-xs font-semibold flex items-center gap-3 cursor-pointer transition ${
-                activeTab === 'resumes' 
-                  ? 'ui-nav-active' 
-                  : 'ui-nav-idle border border-transparent'
-              }`}
-            >
-              <FileText className="w-4 h-4" />
-              Resume Manager
-            </button>
-
-            <button
-              onClick={() => setActiveTab('templates')}
-              className={`w-full py-2.5 px-4 rounded-xl text-left text-xs font-semibold flex items-center gap-3 cursor-pointer transition ${
-                activeTab === 'templates' 
-                  ? 'ui-nav-active' 
-                  : 'ui-nav-idle border border-transparent'
-              }`}
-            >
-              <FileCode className="w-4 h-4" />
-              Templates & Mapping
-            </button>
-
-            <button
-              onClick={() => setActiveTab('history')}
-              className={`w-full py-2.5 px-4 rounded-xl text-left text-xs font-semibold flex items-center gap-3 cursor-pointer transition ${
-                activeTab === 'history' 
-                  ? 'ui-nav-active' 
-                  : 'ui-nav-idle border border-transparent'
-              }`}
-            >
-              <History className="w-4 h-4" />
-              Fill Analytics
-            </button>
-
-            <button
-              onClick={() => setActiveTab('credentials')}
-              className={`w-full py-2.5 px-4 rounded-xl text-left text-xs font-semibold flex items-center gap-3 cursor-pointer transition ${
-                activeTab === 'credentials' 
-                  ? 'ui-nav-active' 
-                  : 'ui-nav-idle border border-transparent'
-              }`}
-            >
-              <Key className="w-4 h-4" />
-              Passwords Vault
+              Profiles
             </button>
 
             <button
               onClick={() => setActiveTab('settings')}
               className={`w-full py-2.5 px-4 rounded-xl text-left text-xs font-semibold flex items-center gap-3 cursor-pointer transition ${
-                activeTab === 'settings' 
-                  ? 'ui-nav-active' 
-                  : 'ui-nav-idle border border-transparent'
+                activeTab === 'settings' ? 'ui-nav-active' : 'ui-nav-idle border border-transparent'
               }`}
             >
               <Settings className="w-4 h-4" />
-              Settings & AI
+              Settings
             </button>
           </nav>
         </div>
 
-        {/* Database Stats */}
         <div className="p-4 border-t ui-border-subtle flex flex-col gap-2">
           <div className="flex items-center gap-2 ui-caption uppercase font-bold tracking-wider">
             <Database className="w-3.5 h-3.5" />
-            <span>Storage Status</span>
+            <span>Storage</span>
           </div>
           <div className="flex justify-between items-center ui-inset-panel">
             <div className="text-[10px] ui-muted">
               <p className="font-semibold">{profiles.length} Profiles</p>
               <p className="mt-0.5">{resumes.length} Resumes</p>
             </div>
-            <div className="text-[10px] text-emerald-600 dark:text-emerald-300 font-medium bg-emerald-50 dark:bg-emerald-950/50 px-2 py-1 rounded border border-emerald-200/80 dark:border-emerald-800/45">
-              Encrypted
+            <div className="text-[10px] text-brand-700 dark:text-cream-200 font-medium bg-cream-100 dark:bg-brand-950/50 px-2 py-1 rounded border ui-border-subtle">
+              Stored locally
             </div>
           </div>
         </div>
       </aside>
 
-      {/* Main Content Area */}
       <main className="flex-1 flex flex-col ui-page overflow-hidden relative">
-        {/* Top Status Alert */}
         {statusMessage && (
-          <div className={`absolute top-4 right-4 z-50 py-2 px-4 rounded-xl text-xs font-semibold shadow-lg animate-in fade-in slide-in-from-top-3 ${
-            statusMessage.type === 'success' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/50' : 'bg-rose-950 text-rose-300 border border-rose-800/50'
-          }`}>
+          <div
+            className={`absolute top-4 right-4 z-50 py-2 px-4 rounded-xl text-xs font-semibold shadow-lg animate-in fade-in slide-in-from-top-3 ${
+              statusMessage.type === 'success'
+                ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/50'
+                : 'bg-rose-950 text-rose-300 border border-rose-800/50'
+            }`}
+          >
             {statusMessage.text}
           </div>
         )}
 
-        {/* Tab - Profiles */}
         {activeTab === 'profiles' && (
           <div className="flex-1 flex overflow-hidden">
-            {/* Profiles List Sidebar */}
             <div className="w-64 border-r ui-profile-list-pane p-4 flex flex-col gap-3 justify-between">
               <div className="flex flex-col gap-2.5">
                 <div className="flex justify-between items-center">
                   <h2 className="ui-section-label">Your Profiles</h2>
-                  <button 
+                  <button
                     onClick={handleCreateProfile}
                     className="p-1 rounded bg-brand-600 hover:bg-brand-500 transition text-white cursor-pointer"
                     title="Add new profile"
@@ -568,36 +540,46 @@ export default function OptionsApp() {
                     <Plus className="w-3.5 h-3.5" />
                   </button>
                 </div>
-                
+
                 <div className="flex flex-col gap-1.5 overflow-y-auto max-h-[calc(100vh-200px)]">
-                  {profiles.map(p => (
-                    <div 
+                  {profiles.map((p) => (
+                    <div
                       key={p.id}
                       onClick={() => handleProfileSelect(p.id)}
                       className={`p-3 rounded-xl border transition cursor-pointer flex justify-between items-center ${
-                        selectedProfileId === p.id 
-                          ? 'bg-white border-brand-500/50 shadow-md shadow-brand-500/5 dark:bg-brand-800/55 dark:border-brand-400/40 dark:shadow-brand-950/40' 
+                        selectedProfileId === p.id
+                          ? 'bg-white border-brand-500/50 shadow-md shadow-brand-500/5 dark:bg-brand-800/55 dark:border-brand-400/40 dark:shadow-brand-950/40'
                           : 'bg-white/60 border-brand-800/15 hover:bg-white/85 dark:bg-brand-950/35 dark:border-brand-600/22 dark:hover:bg-brand-900/50'
                       }`}
                     >
                       <div className="min-w-0">
-                        <p className="text-xs font-semibold text-brand-800 dark:text-cream-100 truncate">{p.name}</p>
-                        <p className="text-[10px] ui-muted truncate mt-0.5">{p.personal.email || 'No email'}</p>
+                        <p className="text-xs font-semibold text-brand-800 dark:text-cream-100 truncate">
+                          {p.name}
+                        </p>
+                        <p className="text-[10px] ui-muted truncate mt-0.5">
+                          {p.personal.email || 'No email'}
+                        </p>
                       </div>
-                      
+
                       <div className="flex items-center gap-1 shrink-0 ml-2">
                         {activeProfileIdState === p.id ? (
                           <span className="ui-badge">Active</span>
                         ) : (
                           <button
-                            onClick={(e) => { e.stopPropagation(); handleSetActiveProfile(p.id); }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSetActiveProfile(p.id);
+                            }}
                             className="text-[9px] font-semibold ui-muted hover:text-brand-800 dark:hover:text-cream-100 hover:underline cursor-pointer"
                           >
                             Set Active
                           </button>
                         )}
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); handleDeleteProfile(p.id); }}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteProfile(p.id);
+                          }}
                           className="p-1 rounded ui-muted hover:text-rose-400 dark:hover:text-rose-300 transition cursor-pointer ml-1"
                         >
                           <Trash2 className="w-3 h-3" />
@@ -609,11 +591,10 @@ export default function OptionsApp() {
               </div>
 
               <div className="text-[10px] ui-muted text-center leading-relaxed">
-                Choose a profile or create multiple templates to map data per role/purpose.
+                Create profiles for different roles or applications.
               </div>
             </div>
 
-            {/* Profile Form Editor */}
             <div className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto min-w-0">
               <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8 pb-4 border-b border-brand-800/20">
                 <input
@@ -636,164 +617,392 @@ export default function OptionsApp() {
                 <ProfileSection icon={User} title="Personal Information">
                   <div className={profileSectionGridClass}>
                     <ProfileField label="Full Name" span="full">
-                      <input type="text" value={personal.fullName} onChange={(e) => setPersonal({ ...personal, fullName: e.target.value })} className={profileInputClass} />
+                      <input
+                        type="text"
+                        value={personal.fullName}
+                        onChange={(e) => setPersonal({ ...personal, fullName: e.target.value })}
+                        className={profileInputClass}
+                      />
                     </ProfileField>
                     <ProfileField label="First Name">
-                      <input type="text" value={personal.firstName} onChange={(e) => setPersonal({ ...personal, firstName: e.target.value })} className={profileInputClass} />
+                      <input
+                        type="text"
+                        value={personal.firstName}
+                        onChange={(e) => setPersonal({ ...personal, firstName: e.target.value })}
+                        className={profileInputClass}
+                      />
                     </ProfileField>
                     <ProfileField label="Last Name">
-                      <input type="text" value={personal.lastName} onChange={(e) => setPersonal({ ...personal, lastName: e.target.value })} className={profileInputClass} />
+                      <input
+                        type="text"
+                        value={personal.lastName}
+                        onChange={(e) => setPersonal({ ...personal, lastName: e.target.value })}
+                        className={profileInputClass}
+                      />
                     </ProfileField>
                     <ProfileField label="Email Address">
-                      <input type="email" value={personal.email} onChange={(e) => setPersonal({ ...personal, email: e.target.value })} className={profileInputClass} />
+                      <input
+                        type="email"
+                        value={personal.email}
+                        onChange={(e) => setPersonal({ ...personal, email: e.target.value })}
+                        className={profileInputClass}
+                      />
                     </ProfileField>
                     <ProfileField label="Phone Number">
-                      <input type="tel" value={personal.phone} onChange={(e) => setPersonal({ ...personal, phone: e.target.value })} className={profileInputClass} />
+                      <input
+                        type="tel"
+                        value={personal.phone}
+                        onChange={(e) => setPersonal({ ...personal, phone: e.target.value })}
+                        className={profileInputClass}
+                      />
                     </ProfileField>
                     <ProfileField label="Street Address" span="full">
-                      <input type="text" value={personal.address} onChange={(e) => setPersonal({ ...personal, address: e.target.value })} className={profileInputClass} />
+                      <input
+                        type="text"
+                        value={personal.address}
+                        onChange={(e) => setPersonal({ ...personal, address: e.target.value })}
+                        className={profileInputClass}
+                      />
                     </ProfileField>
                     <ProfileField label="City">
-                      <input type="text" value={personal.city} onChange={(e) => setPersonal({ ...personal, city: e.target.value })} className={profileInputClass} />
+                      <input
+                        type="text"
+                        value={personal.city}
+                        onChange={(e) => setPersonal({ ...personal, city: e.target.value })}
+                        className={profileInputClass}
+                      />
                     </ProfileField>
                     <ProfileField label="State / Region">
-                      <input type="text" value={personal.state} onChange={(e) => setPersonal({ ...personal, state: e.target.value })} className={profileInputClass} />
+                      <input
+                        type="text"
+                        value={personal.state}
+                        onChange={(e) => setPersonal({ ...personal, state: e.target.value })}
+                        className={profileInputClass}
+                      />
                     </ProfileField>
                     <ProfileField label="Country">
-                      <input type="text" value={personal.country} onChange={(e) => setPersonal({ ...personal, country: e.target.value })} className={profileInputClass} />
+                      <input
+                        type="text"
+                        value={personal.country}
+                        onChange={(e) => setPersonal({ ...personal, country: e.target.value })}
+                        className={profileInputClass}
+                      />
                     </ProfileField>
                     <ProfileField label="Postal Code">
-                      <input type="text" value={personal.postalCode} onChange={(e) => setPersonal({ ...personal, postalCode: e.target.value })} className={profileInputClass} />
+                      <input
+                        type="text"
+                        value={personal.postalCode}
+                        onChange={(e) => setPersonal({ ...personal, postalCode: e.target.value })}
+                        className={profileInputClass}
+                      />
                     </ProfileField>
-                    <SectionCustomFields section="personal" fields={customFields} onAdd={handleAddCustomField} onChange={handleCustomFieldChange} onRemove={handleRemoveCustomField} getGlobalIndex={getCustomFieldGlobalIndex} />
+                    <SectionCustomFields
+                      section="personal"
+                      fields={customFields}
+                      onAdd={handleAddCustomField}
+                      onChange={handleCustomFieldChange}
+                      onRemove={handleRemoveCustomField}
+                      getGlobalIndex={getCustomFieldGlobalIndex}
+                    />
                   </div>
                 </ProfileSection>
 
                 <ProfileSection icon={Briefcase} title="Professional Details">
                   <div className={profileSectionGridClass}>
                     <ProfileField label="Job Title">
-                      <input type="text" value={professional.jobTitle} onChange={(e) => setProfessional({ ...professional, jobTitle: e.target.value })} className={profileInputClass} />
+                      <input
+                        type="text"
+                        value={professional.jobTitle}
+                        onChange={(e) =>
+                          setProfessional({ ...professional, jobTitle: e.target.value })
+                        }
+                        className={profileInputClass}
+                      />
                     </ProfileField>
                     <ProfileField label="Experience (Years)">
-                      <input type="text" value={professional.experience} onChange={(e) => setProfessional({ ...professional, experience: e.target.value })} className={profileInputClass} />
+                      <input
+                        type="text"
+                        value={professional.experience}
+                        onChange={(e) =>
+                          setProfessional({ ...professional, experience: e.target.value })
+                        }
+                        className={profileInputClass}
+                      />
                     </ProfileField>
                     <ProfileField label="Current Company">
-                      <input type="text" value={professional.currentCompany} onChange={(e) => setProfessional({ ...professional, currentCompany: e.target.value })} className={profileInputClass} />
+                      <input
+                        type="text"
+                        value={professional.currentCompany}
+                        onChange={(e) =>
+                          setProfessional({ ...professional, currentCompany: e.target.value })
+                        }
+                        className={profileInputClass}
+                      />
                     </ProfileField>
                     <ProfileField label="Degree">
-                      <input type="text" value={professional.degree} onChange={(e) => setProfessional({ ...professional, degree: e.target.value })} className={profileInputClass} />
+                      <input
+                        type="text"
+                        value={professional.degree}
+                        onChange={(e) =>
+                          setProfessional({ ...professional, degree: e.target.value })
+                        }
+                        className={profileInputClass}
+                      />
                     </ProfileField>
                     <ProfileField label="College / University" span="full">
-                      <input type="text" value={professional.college} onChange={(e) => setProfessional({ ...professional, college: e.target.value })} className={profileInputClass} />
+                      <input
+                        type="text"
+                        value={professional.college}
+                        onChange={(e) =>
+                          setProfessional({ ...professional, college: e.target.value })
+                        }
+                        className={profileInputClass}
+                      />
                     </ProfileField>
                     <ProfileField label="LinkedIn URL">
-                      <input type="url" value={professional.linkedin} onChange={(e) => setProfessional({ ...professional, linkedin: e.target.value })} className={profileInputClass} />
+                      <input
+                        type="url"
+                        value={professional.linkedin}
+                        onChange={(e) =>
+                          setProfessional({ ...professional, linkedin: e.target.value })
+                        }
+                        className={profileInputClass}
+                      />
                     </ProfileField>
                     <ProfileField label="GitHub URL">
-                      <input type="url" value={professional.github} onChange={(e) => setProfessional({ ...professional, github: e.target.value })} className={profileInputClass} />
+                      <input
+                        type="url"
+                        value={professional.github}
+                        onChange={(e) =>
+                          setProfessional({ ...professional, github: e.target.value })
+                        }
+                        className={profileInputClass}
+                      />
                     </ProfileField>
                     <ProfileField label="Portfolio URL" span="full">
-                      <input type="url" value={professional.portfolio} onChange={(e) => setProfessional({ ...professional, portfolio: e.target.value })} className={profileInputClass} />
+                      <input
+                        type="url"
+                        value={professional.portfolio}
+                        onChange={(e) =>
+                          setProfessional({ ...professional, portfolio: e.target.value })
+                        }
+                        className={profileInputClass}
+                      />
                     </ProfileField>
                     <ProfileField label="Skills (comma-separated)" span="full">
-                      <textarea value={professional.skills} onChange={(e) => setProfessional({ ...professional, skills: e.target.value })} rows={3} className={profileTextareaClass} />
+                      <textarea
+                        value={professional.skills}
+                        onChange={(e) =>
+                          setProfessional({ ...professional, skills: e.target.value })
+                        }
+                        rows={3}
+                        className={profileTextareaClass}
+                      />
                     </ProfileField>
-                    <SectionCustomFields section="professional" fields={customFields} onAdd={handleAddCustomField} onChange={handleCustomFieldChange} onRemove={handleRemoveCustomField} getGlobalIndex={getCustomFieldGlobalIndex} />
+                    <SectionCustomFields
+                      section="professional"
+                      fields={customFields}
+                      onAdd={handleAddCustomField}
+                      onChange={handleCustomFieldChange}
+                      onRemove={handleRemoveCustomField}
+                      getGlobalIndex={getCustomFieldGlobalIndex}
+                    />
                   </div>
                 </ProfileSection>
 
-                <ProfileSection icon={GraduationCap} title="Educational Details">
-                  <div className="flex flex-col gap-4">
-                    <EducationSubBlock title="10th Standard / Matriculation">
-                      <ProfileField label="School Name" span="full">
-                        <input type="text" value={education.tenth.schoolOrCollege} onChange={(e) => setEducation({ ...education, tenth: { ...education.tenth, schoolOrCollege: e.target.value } })} className={profileInputClass} />
-                      </ProfileField>
-                      <ProfileField label="Board / Degree">
-                        <input type="text" value={education.tenth.degree} onChange={(e) => setEducation({ ...education, tenth: { ...education.tenth, degree: e.target.value } })} className={profileInputClass} placeholder="e.g. CBSE" />
-                      </ProfileField>
-                      <ProfileField label="Passing Year">
-                        <input type="text" value={education.tenth.passingYear} onChange={(e) => setEducation({ ...education, tenth: { ...education.tenth, passingYear: e.target.value } })} className={profileInputClass} />
-                      </ProfileField>
-                      <ProfileField label="Grade / CGPA / %">
-                        <input type="text" value={education.tenth.grade} onChange={(e) => setEducation({ ...education, tenth: { ...education.tenth, grade: e.target.value } })} className={profileInputClass} />
-                      </ProfileField>
-                    </EducationSubBlock>
-
-                    <EducationSubBlock title="12th / Diploma / Intermediate">
-                      <ProfileField label="School / College" span="full">
-                        <input type="text" value={education.twelfthOrDiploma.schoolOrCollege} onChange={(e) => setEducation({ ...education, twelfthOrDiploma: { ...education.twelfthOrDiploma, schoolOrCollege: e.target.value } })} className={profileInputClass} />
-                      </ProfileField>
-                      <ProfileField label="Board / Degree">
-                        <input type="text" value={education.twelfthOrDiploma.degree} onChange={(e) => setEducation({ ...education, twelfthOrDiploma: { ...education.twelfthOrDiploma, degree: e.target.value } })} className={profileInputClass} />
-                      </ProfileField>
-                      <ProfileField label="Stream / Field">
-                        <input type="text" value={education.twelfthOrDiploma.fieldOfStudy} onChange={(e) => setEducation({ ...education, twelfthOrDiploma: { ...education.twelfthOrDiploma, fieldOfStudy: e.target.value } })} className={profileInputClass} />
-                      </ProfileField>
-                      <ProfileField label="Passing Year">
-                        <input type="text" value={education.twelfthOrDiploma.passingYear} onChange={(e) => setEducation({ ...education, twelfthOrDiploma: { ...education.twelfthOrDiploma, passingYear: e.target.value } })} className={profileInputClass} />
-                      </ProfileField>
-                      <ProfileField label="Grade / CGPA / %">
-                        <input type="text" value={education.twelfthOrDiploma.grade} onChange={(e) => setEducation({ ...education, twelfthOrDiploma: { ...education.twelfthOrDiploma, grade: e.target.value } })} className={profileInputClass} />
-                      </ProfileField>
-                    </EducationSubBlock>
-
-                    <EducationSubBlock title="Undergraduate (UG)">
-                      <ProfileField label="College / University" span="full">
-                        <input type="text" value={education.ug.schoolOrCollege} onChange={(e) => setEducation({ ...education, ug: { ...education.ug, schoolOrCollege: e.target.value } })} className={profileInputClass} />
-                      </ProfileField>
-                      <ProfileField label="Degree">
-                        <input type="text" value={education.ug.degree} onChange={(e) => setEducation({ ...education, ug: { ...education.ug, degree: e.target.value } })} className={profileInputClass} />
-                      </ProfileField>
-                      <ProfileField label="Major / Specialization">
-                        <input type="text" value={education.ug.fieldOfStudy} onChange={(e) => setEducation({ ...education, ug: { ...education.ug, fieldOfStudy: e.target.value } })} className={profileInputClass} />
-                      </ProfileField>
-                      <ProfileField label="Passing Year">
-                        <input type="text" value={education.ug.passingYear} onChange={(e) => setEducation({ ...education, ug: { ...education.ug, passingYear: e.target.value } })} className={profileInputClass} />
-                      </ProfileField>
-                      <ProfileField label="Grade / CGPA / %">
-                        <input type="text" value={education.ug.grade} onChange={(e) => setEducation({ ...education, ug: { ...education.ug, grade: e.target.value } })} className={profileInputClass} />
-                      </ProfileField>
-                    </EducationSubBlock>
-
-                    <EducationSubBlock title="Postgraduate (PG)">
-                      <ProfileField label="College / University" span="full">
-                        <input type="text" value={education.pg.schoolOrCollege} onChange={(e) => setEducation({ ...education, pg: { ...education.pg, schoolOrCollege: e.target.value } })} className={profileInputClass} />
-                      </ProfileField>
-                      <ProfileField label="Degree">
-                        <input type="text" value={education.pg.degree} onChange={(e) => setEducation({ ...education, pg: { ...education.pg, degree: e.target.value } })} className={profileInputClass} />
-                      </ProfileField>
-                      <ProfileField label="Major / Specialization">
-                        <input type="text" value={education.pg.fieldOfStudy} onChange={(e) => setEducation({ ...education, pg: { ...education.pg, fieldOfStudy: e.target.value } })} className={profileInputClass} />
-                      </ProfileField>
-                      <ProfileField label="Passing Year">
-                        <input type="text" value={education.pg.passingYear} onChange={(e) => setEducation({ ...education, pg: { ...education.pg, passingYear: e.target.value } })} className={profileInputClass} />
-                      </ProfileField>
-                      <ProfileField label="Grade / CGPA / %">
-                        <input type="text" value={education.pg.grade} onChange={(e) => setEducation({ ...education, pg: { ...education.pg, grade: e.target.value } })} className={profileInputClass} />
-                      </ProfileField>
-                    </EducationSubBlock>
-
-                    <div className={profileSectionGridClass}>
-                      <SectionCustomFields section="education" fields={customFields} onAdd={handleAddCustomField} onChange={handleCustomFieldChange} onRemove={handleRemoveCustomField} getGlobalIndex={getCustomFieldGlobalIndex} />
-                    </div>
+                <ProfileSection icon={GraduationCap} title="Education">
+                  <div className={profileSectionGridClass}>
+                    <ProfileField label="College / University" span="full">
+                      <input
+                        type="text"
+                        value={education.ug.schoolOrCollege}
+                        onChange={(e) =>
+                          setEducation({
+                            ...education,
+                            ug: { ...education.ug, schoolOrCollege: e.target.value },
+                          })
+                        }
+                        className={profileInputClass}
+                      />
+                    </ProfileField>
+                    <ProfileField label="Degree">
+                      <input
+                        type="text"
+                        value={education.ug.degree}
+                        onChange={(e) =>
+                          setEducation({
+                            ...education,
+                            ug: { ...education.ug, degree: e.target.value },
+                          })
+                        }
+                        className={profileInputClass}
+                      />
+                    </ProfileField>
+                    <ProfileField label="Major / Specialization">
+                      <input
+                        type="text"
+                        value={education.ug.fieldOfStudy}
+                        onChange={(e) =>
+                          setEducation({
+                            ...education,
+                            ug: { ...education.ug, fieldOfStudy: e.target.value },
+                          })
+                        }
+                        className={profileInputClass}
+                      />
+                    </ProfileField>
+                    <ProfileField label="Passing Year">
+                      <input
+                        type="text"
+                        value={education.ug.passingYear}
+                        onChange={(e) =>
+                          setEducation({
+                            ...education,
+                            ug: { ...education.ug, passingYear: e.target.value },
+                          })
+                        }
+                        className={profileInputClass}
+                      />
+                    </ProfileField>
+                    <ProfileField label="Grade / CGPA / %">
+                      <input
+                        type="text"
+                        value={education.ug.grade}
+                        onChange={(e) =>
+                          setEducation({
+                            ...education,
+                            ug: { ...education.ug, grade: e.target.value },
+                          })
+                        }
+                        className={profileInputClass}
+                      />
+                    </ProfileField>
+                    <SectionCustomFields
+                      section="education"
+                      fields={customFields}
+                      onAdd={handleAddCustomField}
+                      onChange={handleCustomFieldChange}
+                      onRemove={handleRemoveCustomField}
+                      getGlobalIndex={getCustomFieldGlobalIndex}
+                    />
                   </div>
                 </ProfileSection>
 
                 <ProfileSection icon={Award} title="Compensation & Notice">
                   <div className={profileSectionGridClass}>
                     <ProfileField label="Current CTC">
-                      <input type="text" value={jobInfo.currentCTC} onChange={(e) => setJobInfo({ ...jobInfo, currentCTC: e.target.value })} className={profileInputClass} />
+                      <input
+                        type="text"
+                        value={jobInfo.currentCTC}
+                        onChange={(e) => setJobInfo({ ...jobInfo, currentCTC: e.target.value })}
+                        className={profileInputClass}
+                      />
                     </ProfileField>
                     <ProfileField label="Expected CTC">
-                      <input type="text" value={jobInfo.expectedCTC} onChange={(e) => setJobInfo({ ...jobInfo, expectedCTC: e.target.value })} className={profileInputClass} />
+                      <input
+                        type="text"
+                        value={jobInfo.expectedCTC}
+                        onChange={(e) => setJobInfo({ ...jobInfo, expectedCTC: e.target.value })}
+                        className={profileInputClass}
+                      />
                     </ProfileField>
                     <ProfileField label="Notice Period">
-                      <input type="text" value={jobInfo.noticePeriod} onChange={(e) => setJobInfo({ ...jobInfo, noticePeriod: e.target.value })} className={profileInputClass} placeholder="e.g. 30 Days" />
+                      <input
+                        type="text"
+                        value={jobInfo.noticePeriod}
+                        onChange={(e) => setJobInfo({ ...jobInfo, noticePeriod: e.target.value })}
+                        className={profileInputClass}
+                        placeholder="e.g. 30 Days"
+                      />
                     </ProfileField>
                     <ProfileField label="Preferred Location">
-                      <input type="text" value={jobInfo.preferredLocation} onChange={(e) => setJobInfo({ ...jobInfo, preferredLocation: e.target.value })} className={profileInputClass} />
+                      <input
+                        type="text"
+                        value={jobInfo.preferredLocation}
+                        onChange={(e) =>
+                          setJobInfo({ ...jobInfo, preferredLocation: e.target.value })
+                        }
+                        className={profileInputClass}
+                      />
                     </ProfileField>
-                    <SectionCustomFields section="jobInfo" fields={customFields} onAdd={handleAddCustomField} onChange={handleCustomFieldChange} onRemove={handleRemoveCustomField} getGlobalIndex={getCustomFieldGlobalIndex} />
+                    <SectionCustomFields
+                      section="jobInfo"
+                      fields={customFields}
+                      onAdd={handleAddCustomField}
+                      onChange={handleCustomFieldChange}
+                      onRemove={handleRemoveCustomField}
+                      getGlobalIndex={getCustomFieldGlobalIndex}
+                    />
+                  </div>
+                </ProfileSection>
+
+                <ProfileSection icon={FileText} title="Resumes">
+                  <div className="flex flex-col gap-4">
+                    <div className="ui-dropzone p-8 text-center flex flex-col items-center justify-center gap-3 relative">
+                      <HardDriveDownload className="w-10 h-10 text-brand-400" />
+                      <div>
+                        <p className="text-xs font-semibold text-brand-800 dark:text-cream-100">
+                          Upload Resume PDF/DOCX
+                        </p>
+                        <p className="ui-caption mt-1">
+                          Files are stored locally in this browser.
+                        </p>
+                      </div>
+                      <input
+                        type="file"
+                        accept=".pdf,.docx"
+                        onChange={handleResumeUpload}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {resumes.map((r) => (
+                        <div
+                          key={r.id}
+                          className="ui-panel rounded-xl p-4 flex justify-between items-center"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="h-9 w-9 rounded-lg bg-brand-100 dark:bg-brand-700/45 border border-brand-300/50 dark:border-brand-500/40 flex items-center justify-center text-[10px] font-bold text-brand-700 dark:text-cream-100 uppercase shrink-0">
+                              {r.fileType}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold ui-heading truncate">{r.name}</p>
+                              <p className="ui-caption mt-0.5">
+                                Uploaded {new Date(r.uploadedAt).toLocaleDateString()}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0 ml-2">
+                            {r.isDefault ? (
+                              <span className="ui-badge flex items-center gap-1">
+                                <Star className="w-3 h-3 fill-brand-400" />
+                                Default
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => handleSetDefaultResume(r.id)}
+                                className="text-[9px] font-semibold ui-muted hover:text-brand-700 dark:hover:text-cream-100 hover:underline cursor-pointer flex items-center gap-1"
+                              >
+                                <Star className="w-3 h-3" />
+                                Set Default
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleDeleteResume(r.id)}
+                              className="ui-icon-btn hover:text-rose-500 dark:hover:text-rose-300 ml-1"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                      {resumes.length === 0 && (
+                        <div className="col-span-2 text-center py-6 ui-panel-soft rounded-xl ui-empty">
+                          No resumes uploaded yet.
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </ProfileSection>
               </div>
@@ -801,319 +1010,89 @@ export default function OptionsApp() {
           </div>
         )}
 
-        {/* Tab - Resumes */}
-        {activeTab === 'resumes' && (
-          <div className="p-8 overflow-y-auto max-w-4xl mx-auto w-full flex flex-col gap-6">
-            <div className="pb-4 border-b border-brand-800/15">
-              <h2 className="ui-page-title">Resume Manager</h2>
-              <p className="ui-subtitle">Upload and store PDF/DOCX resumes. The extension automatically detects file uploads on pages and drops the file reference.</p>
-            </div>
-
-            {/* Upload Area */}
-            <div className="ui-dropzone p-8 text-center flex flex-col items-center justify-center gap-3 relative">
-              <HardDriveDownload className="w-10 h-10 text-brand-400" />
-              <div>
-                <p className="text-xs font-semibold text-brand-800 dark:text-cream-100">Drag & Drop Resume PDF/DOCX</p>
-                <p className="ui-caption mt-1">Maximum 5MB. Files are stored 100% locally and encrypted inside IndexedDB.</p>
-              </div>
-              <input
-                type="file"
-                accept=".pdf,.docx"
-                onChange={handleResumeUpload}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-              />
-            </div>
-
-            {/* List of Resumes */}
-            <div className="flex flex-col gap-2.5">
-              <h3 className="ui-section-label mb-1">Your Resumes ({resumes.length})</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {resumes.map(r => (
-                  <div key={r.id} className="ui-panel rounded-xl p-4 flex justify-between items-center">
-                    <div className="flex items-center gap-3">
-                      <div className="h-9 w-9 rounded-lg bg-brand-100 dark:bg-brand-700/45 border border-brand-300/50 dark:border-brand-500/40 flex items-center justify-center text-[10px] font-bold text-brand-700 dark:text-cream-100 uppercase">
-                        {r.fileType}
-                      </div>
-                      <div>
-                        <p className="text-xs font-semibold ui-heading truncate max-w-[200px]">{r.name}</p>
-                        <p className="ui-caption mt-0.5">Uploaded {new Date(r.uploadedAt).toLocaleDateString()}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0 ml-2">
-                      {r.isDefault ? (
-                        <span className="ui-badge flex items-center gap-1">
-                          <Star className="w-3 h-3 fill-brand-400" />
-                          Default
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => handleSetDefaultResume(r.id)}
-                          className="text-[9px] font-semibold ui-muted hover:text-brand-700 dark:hover:text-cream-100 hover:underline cursor-pointer flex items-center gap-1"
-                        >
-                          <Star className="w-3 h-3" />
-                          Set Default
-                        </button>
-                      )}
-                      <button 
-                        onClick={() => handleDeleteResume(r.id)}
-                        className="ui-icon-btn hover:text-rose-500 dark:hover:text-rose-300 ml-1"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                {resumes.length === 0 && (
-                  <div className="col-span-2 text-center py-8 ui-panel-soft rounded-xl ui-empty">
-                    No resumes uploaded. Add a PDF or DOCX file to enable resume autofill.
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Tab - Templates */}
-        {activeTab === 'templates' && (
-          <div className="p-8 overflow-y-auto max-w-5xl mx-auto w-full flex flex-col gap-6">
-            <div className="pb-4 border-b border-brand-800/15 flex justify-between items-center">
-              <div>
-                <h2 className="ui-page-title">Templates & Mappings</h2>
-                <p className="ui-subtitle">Manage website-specific field selectors, mapping overrides, and manual element links.</p>
-              </div>
-              <div className="relative">
-                <Search className="w-4 h-4 text-brand-600/50 dark:text-cream-100/50 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder="Search domain..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="ui-input rounded-xl pl-9 pr-4 py-1.5 text-xs focus:outline-none w-60"
-                />
-              </div>
-            </div>
-
-            {/* Manual Mappings Grid */}
-            <div className="flex flex-col gap-3">
-              <h3 className="ui-section-label mb-1">Manual Field Links ({manualMappings.length})</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {manualMappings
-                  .filter(m => m.domain.toLowerCase().includes(searchQuery.toLowerCase()))
-                  .map(m => (
-                    <div key={m.id} className="ui-panel rounded-xl p-4 flex justify-between items-start gap-4">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold ui-heading">{m.domain}</span>
-                          <span className="text-[9px] bg-cream-50 dark:bg-brand-950/70 px-1.5 py-0.5 rounded text-brand-700 dark:text-cream-200 font-semibold border border-brand-300/40 dark:border-brand-600/35">Custom Map</span>
-                        </div>
-                        <p className="text-[10px] ui-muted mt-1.5 font-mono truncate bg-cream-50/80 dark:bg-brand-950/55 p-1.5 rounded border ui-border-subtle">
-                          Selector: {m.selector}
-                        </p>
-                        <p className="text-[10px] text-brand-400 mt-1 font-semibold">
-                          Maps to: {m.fieldPath}
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => handleDeleteManualMap(m.id)}
-                        className="ui-icon-btn hover:text-rose-500 dark:hover:text-rose-300 shrink-0"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                {manualMappings.length === 0 && (
-                  <div className="col-span-2 text-center py-8 ui-panel-soft rounded-xl ui-empty">
-                    No manual mappings. Map a field by clicking "Manual Map" in the page widget.
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Domain Templates */}
-            <div className="flex flex-col gap-3">
-              <h3 className="ui-section-label mb-1">Domain Templates ({templates.length})</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {templates
-                  .filter(t => t.domain.toLowerCase().includes(searchQuery.toLowerCase()))
-                  .map(t => (
-                    <div key={t.id} className="ui-panel rounded-xl p-4 flex justify-between items-center">
-                      <div>
-                        <p className="text-xs font-bold ui-heading">{t.domain}</p>
-                        <p className="ui-caption mt-0.5">Created {new Date(t.createdAt).toLocaleDateString()}</p>
-                      </div>
-                      <button
-                        onClick={() => handleDeleteTemplate(t.id)}
-                        className="ui-icon-btn hover:text-rose-500 dark:hover:text-rose-300"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                {templates.length === 0 && (
-                  <div className="col-span-2 text-center py-8 ui-panel-soft rounded-xl ui-empty">
-                    No custom templates saved. Save templates via the page widget.
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Tab - History & Analytics */}
-        {activeTab === 'history' && (
-          <div className="p-8 overflow-y-auto max-w-5xl mx-auto w-full flex flex-col gap-6">
-            <div className="pb-4 border-b border-brand-800/15 flex justify-between items-center">
-              <div>
-                <h2 className="ui-page-title">Autofill History</h2>
-                <p className="ui-subtitle">Review form fill history, accuracy metrics, and local optimization diagnostics.</p>
-              </div>
-              <button
-                onClick={handleClearHistory}
-                disabled={history.length === 0}
-                className="ui-input hover:bg-brand-600/15 dark:hover:bg-brand-500/20 disabled:opacity-50 py-1.5 px-3 rounded-lg text-xs font-medium transition cursor-pointer flex items-center gap-1.5"
-              >
-                <Trash2 className="w-4 h-4 text-rose-500" />
-                Clear Logs
-              </button>
-            </div>
-
-            {/* Metrics cards */}
-            <div className="grid grid-cols-3 gap-4">
-              <div className="ui-panel rounded-2xl p-5">
-                <p className="ui-section-label text-[10px]">Total Form Fills</p>
-                <p className="text-2xl font-bold ui-heading mt-1">{history.length}</p>
-                <div className="text-[10px] text-brand-500 dark:text-cream-100/75 flex items-center gap-1 mt-1 font-semibold">
-                  <CloudLightning className="w-3.5 h-3.5" />
-                  <span>One-click autofills</span>
-                </div>
-              </div>
-
-              <div className="ui-panel rounded-2xl p-5">
-                <p className="ui-section-label text-[10px]">Total Fields Populated</p>
-                <p className="text-2xl font-bold ui-heading mt-1">
-                  {history.reduce((sum, entry) => sum + entry.fieldsCount, 0)}
-                </p>
-                <p className="ui-caption mt-1.5">
-                  Avg fields/page: {history.length > 0 ? (history.reduce((sum, entry) => sum + entry.fieldsCount, 0) / history.length).toFixed(1) : 0}
-                </p>
-              </div>
-
-              <div className="ui-panel rounded-2xl p-5">
-                <p className="ui-section-label text-[10px] font-sans">Est. Time Saved</p>
-                <p className="text-2xl font-bold ui-heading mt-1">
-                  {((history.reduce((sum, entry) => sum + entry.fieldsCount, 0) * 8) / 60).toFixed(1)} mins
-                </p>
-                <div className="text-[10px] ui-muted flex items-center gap-1 mt-1 font-semibold">
-                  <ArrowUpRight className="w-3.5 h-3.5" />
-                  <span>Calculated at 8s/field saved</span>
-                </div>
-              </div>
-            </div>
-
-            {/* History Table */}
-            <div className="ui-panel-soft rounded-2xl overflow-hidden mt-4">
-              <div className="ui-table-bar">
-                Fill Logs
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b ui-border-subtle ui-table-head">
-                      <th className="p-4">Website Domain</th>
-                      <th className="p-4">Profile Applied</th>
-                      <th className="p-4">Fields Filled</th>
-                      <th className="p-4">Timestamp</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-brand-800/15 text-xs">
-                    {history.map(entry => (
-                      <tr key={entry.id} className="ui-table-row">
-                        <td className="p-4 font-semibold">{entry.domain}</td>
-                        <td className="p-4">{entry.profileName}</td>
-                        <td className="p-4 font-mono">{entry.fieldsCount} fields</td>
-                        <td className="p-4 ui-muted">{new Date(entry.timestamp).toLocaleString()}</td>
-                      </tr>
-                    ))}
-                    {history.length === 0 && (
-                      <tr>
-                        <td colSpan={4} className="text-center py-10 ui-empty">
-                          No history records. Autofill forms on external websites to populate analytics.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Tab - Settings */}
         {activeTab === 'settings' && appSettings && (
           <div className="p-8 overflow-y-auto max-w-4xl mx-auto w-full flex flex-col gap-6">
             <div className="pb-4 border-b ui-border-subtle">
-              <h2 className="ui-page-title">Configuration & Security</h2>
-              <p className="text-xs ui-muted mt-1">Configure AI models, manage encryption backups, and setup triggers.</p>
+              <h2 className="ui-page-title">Settings</h2>
+              <p className="text-xs ui-muted mt-1">
+                AI matching, site access, and data stored locally in this browser.
+              </p>
             </div>
 
-            {/* AI Model config */}
             <div className="ui-panel p-5 rounded-2xl flex flex-col gap-4">
               <div className="flex items-center gap-2 border-b ui-border-subtle pb-2">
                 <Settings2 className="w-4.5 h-4.5 text-brand-500 dark:text-brand-300" />
-                <h3 className="ui-section-title">AI Matcher Provider</h3>
+                <h3 className="ui-section-title">AI Matcher</h3>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div 
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div
                   onClick={() =>
                     setAppSettingsState({
                       ...appSettings,
                       ai: { ...appSettings.ai, provider: 'heuristic', answerOpenQuestions: false },
                     })
                   }
-                  className={`ui-choice-card ${appSettings.ai.provider === 'heuristic' ? 'ui-choice-card-active' : ''}`}
+                  className={`ui-choice-card cursor-pointer ${
+                    appSettings.ai.provider === 'heuristic' ? 'ui-choice-card-active' : ''
+                  }`}
                 >
-                  <p className="ui-choice-card-title">Offline only</p>
-                  <p className="ui-choice-card-desc">Local keyword and custom-field matching only. No Gemini API calls.</p>
+                  <p className="ui-choice-card-title">Offline (heuristic)</p>
+                  <p className="ui-choice-card-desc">
+                    Local keyword and custom-field matching only. No API calls.
+                  </p>
                 </div>
 
-                <div 
-                  onClick={() => setAppSettingsState({ ...appSettings, ai: { ...appSettings.ai, provider: 'hybrid' } })}
-                  className={`ui-choice-card ${appSettings.ai.provider === 'hybrid' ? 'ui-choice-card-active' : ''}`}
+                <div
+                  onClick={() =>
+                    setAppSettingsState({
+                      ...appSettings,
+                      ai: { ...appSettings.ai, provider: 'hybrid' },
+                    })
+                  }
+                  className={`ui-choice-card cursor-pointer ${
+                    appSettings.ai.provider === 'hybrid' ? 'ui-choice-card-active' : ''
+                  }`}
                 >
-                  <p className="ui-choice-card-title">Hybrid (recommended)</p>
-                  <p className="ui-choice-card-desc">Offline match first, then Gemini for unmatched fields and essay-style questions using your profile + job description.</p>
-                </div>
-
-                <div 
-                  onClick={() => setAppSettingsState({ ...appSettings, ai: { ...appSettings.ai, provider: 'gemini' } })}
-                  className={`ui-choice-card ${appSettings.ai.provider === 'gemini' ? 'ui-choice-card-active' : ''}`}
-                >
-                  <p className="ui-choice-card-title">Gemini-first</p>
-                  <p className="ui-choice-card-desc">Maximum AI coverage: Gemini maps and generates answers for anything heuristics miss.</p>
+                  <p className="ui-choice-card-title">Smart (hybrid)</p>
+                  <p className="ui-choice-card-desc">
+                    Offline match first, then Gemini for unmatched fields and open questions.
+                  </p>
                 </div>
               </div>
 
-              {(appSettings.ai.provider !== 'heuristic' || appSettings.ai.answerOpenQuestions !== false) && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 animate-fade-in">
+              {showAiCredentials && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
                   <div className="md:col-span-2">
-                    <label className="block text-[10px] font-semibold ui-label uppercase mb-1">Google Gemini API Key</label>
+                    <label className="block text-[10px] font-semibold ui-label uppercase mb-1">
+                      Google Gemini API Key
+                    </label>
                     <input
                       type="password"
                       placeholder="AIzaSy..."
                       value={appSettings.ai.geminiApiKey}
-                      onChange={(e) => setAppSettingsState({ ...appSettings, ai: { ...appSettings.ai, geminiApiKey: e.target.value } })}
+                      onChange={(e) =>
+                        setAppSettingsState({
+                          ...appSettings,
+                          ai: { ...appSettings.ai, geminiApiKey: e.target.value },
+                        })
+                      }
                       className="w-full ui-input rounded-lg p-2 text-xs"
                     />
-                    <p className="text-[10px] ui-muted mt-1">
-                      Your key only — stored locally in this browser. Get a free key from Google AI Studio. Not read from .env or build files.
-                    </p>
+                    <p className="text-[10px] ui-muted mt-1">Stored locally in this browser.</p>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-semibold ui-label uppercase mb-1">Model</label>
+                    <label className="block text-[10px] font-semibold ui-label uppercase mb-1">
+                      Model
+                    </label>
                     <select
                       value={appSettings.ai.geminiModel}
-                      onChange={(e) => setAppSettingsState({ ...appSettings, ai: { ...appSettings.ai, geminiModel: e.target.value } })}
+                      onChange={(e) =>
+                        setAppSettingsState({
+                          ...appSettings,
+                          ai: { ...appSettings.ai, geminiModel: e.target.value },
+                        })
+                      }
                       className="w-full ui-input rounded-lg p-2 text-xs"
                     >
                       <option value="gemini-2.0-flash">gemini-2.0-flash</option>
@@ -1143,7 +1122,10 @@ export default function OptionsApp() {
                         onChange={(e) =>
                           setAppSettingsState({
                             ...appSettings,
-                            ai: { ...appSettings.ai, useJobDescriptionContext: e.target.checked },
+                            ai: {
+                              ...appSettings.ai,
+                              useJobDescriptionContext: e.target.checked,
+                            },
                           })
                         }
                         className="rounded border-brand-700/30 dark:border-brand-400/40 dark:bg-brand-950"
@@ -1155,19 +1137,20 @@ export default function OptionsApp() {
               )}
             </div>
 
-            {/* General Toggles */}
             <div className="ui-panel p-5 rounded-2xl flex flex-col gap-4">
               <div className="flex items-center gap-2 border-b ui-border-subtle pb-2">
                 <Sliders className="w-4.5 h-4.5 text-brand-500 dark:text-brand-300" />
-                <h3 className="ui-section-title">General Preferences</h3>
+                <h3 className="ui-section-title">General</h3>
               </div>
 
               <div>
-                <label className="block text-[10px] font-semibold ui-label uppercase mb-1">Theme</label>
+                <label className="block text-[10px] font-semibold ui-label uppercase mb-1">
+                  Theme
+                </label>
                 <select
                   value={appSettings.theme}
                   onChange={(e) => {
-                    const theme = e.target.value as AppSettingsType['theme'];
+                    const theme = e.target.value as AppSettings['theme'];
                     setAppSettingsState({ ...appSettings, theme });
                     applyThemeSetting(theme);
                   }}
@@ -1178,96 +1161,162 @@ export default function OptionsApp() {
                   <option value="system">Match system</option>
                 </select>
               </div>
+
+              <label className="flex items-center gap-2 text-xs text-brand-800 dark:text-cream-100 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={appSettings.learnFromCorrections !== false}
+                  onChange={(e) =>
+                    setAppSettingsState({
+                      ...appSettings,
+                      learnFromCorrections: e.target.checked,
+                    })
+                  }
+                  className="rounded border-brand-700/30 dark:border-brand-400/40 dark:bg-brand-950"
+                />
+                Learn from field corrections
+              </label>
+
+              <label className="flex items-center gap-2 text-xs text-brand-800 dark:text-cream-100 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={appSettings.showFillPreview !== false}
+                  onChange={(e) =>
+                    setAppSettingsState({
+                      ...appSettings,
+                      showFillPreview: e.target.checked,
+                    })
+                  }
+                  className="rounded border-brand-700/30 dark:border-brand-400/40 dark:bg-brand-950"
+                />
+                Show fill preview before applying
+              </label>
+
+              <label className="flex items-center gap-2 text-xs text-brand-800 dark:text-cream-100 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={appSettings.autoFillOnLoad === true}
+                  onChange={(e) =>
+                    setAppSettingsState({
+                      ...appSettings,
+                      autoFillOnLoad: e.target.checked,
+                    })
+                  }
+                  className="rounded border-brand-700/30 dark:border-brand-400/40 dark:bg-brand-950"
+                />
+                Auto-fill empty fields when a page loads (allowed sites only)
+              </label>
+
+              <div>
+                <label className="block text-[10px] font-semibold ui-label uppercase mb-1">
+                  Site allowlist
+                </label>
+                <textarea
+                  rows={4}
+                  placeholder="One domain per line (leave empty for all sites)&#10;greenhouse.io&#10;lever.co"
+                  value={appSettings.siteAllowlist.join('\n')}
+                  onChange={(e) =>
+                    setAppSettingsState({
+                      ...appSettings,
+                      siteAllowlist: e.target.value
+                        .split('\n')
+                        .map((line) => line.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                  className={`${profileTextareaClass} w-full font-mono text-[11px]`}
+                />
+                <p className="text-[10px] ui-muted mt-1">
+                  When empty, autofill is allowed on all sites.
+                </p>
+              </div>
             </div>
 
-            {/* Submit Action */}
+            <div className="ui-panel p-5 rounded-2xl flex flex-col gap-4">
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 border-b ui-border-subtle pb-2">
+                <h3 className="ui-section-title">Manual field mappings</h3>
+                <div className="relative">
+                  <Search className="w-4 h-4 text-brand-600/50 dark:text-cream-100/50 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Search domain..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="ui-input rounded-xl pl-9 pr-4 py-1.5 text-xs focus:outline-none w-52"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {filteredManualMappings.map((m) => (
+                  <div
+                    key={m.id}
+                    className="ui-panel-soft rounded-xl p-4 flex justify-between items-start gap-4"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold ui-heading">{m.domain}</p>
+                      <p className="text-[10px] ui-muted mt-1.5 font-mono truncate bg-cream-50/80 dark:bg-brand-950/55 p-1.5 rounded border ui-border-subtle">
+                        {m.selector}
+                      </p>
+                      <p className="text-[10px] text-brand-400 mt-1 font-semibold">
+                        Maps to: {m.fieldPath}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteManualMap(m.id)}
+                      className="ui-icon-btn hover:text-rose-500 dark:hover:text-rose-300 shrink-0"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+                {filteredManualMappings.length === 0 && (
+                  <div className="col-span-2 text-center py-8 ui-panel-soft rounded-xl ui-empty">
+                    No manual mappings. Use Manual Map on the page widget.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="ui-panel p-5 rounded-2xl flex flex-col gap-4">
+              <h3 className="ui-section-title border-b ui-border-subtle pb-2">Data</h3>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={handleExportData}
+                  className="ui-input hover:bg-brand-600/15 dark:hover:bg-brand-500/20 py-2 px-4 rounded-lg text-xs font-medium transition cursor-pointer flex items-center gap-2"
+                >
+                  <Download className="w-4 h-4" />
+                  Export profiles & resumes
+                </button>
+                <label className="ui-input hover:bg-brand-600/15 dark:hover:bg-brand-500/20 py-2 px-4 rounded-lg text-xs font-medium transition cursor-pointer flex items-center gap-2">
+                  <Upload className="w-4 h-4" />
+                  Import JSON
+                  <input
+                    type="file"
+                    accept=".json,application/json"
+                    onChange={handleImportData}
+                    className="hidden"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={handleClearLearnedMappings}
+                  className="ui-input hover:bg-rose-500/10 py-2 px-4 rounded-lg text-xs font-medium transition cursor-pointer flex items-center gap-2 text-rose-600 dark:text-rose-300"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Clear learned mappings
+                </button>
+              </div>
+            </div>
+
             <div className="flex justify-end gap-2 border-t ui-border-subtle pt-4">
               <button
                 onClick={handleSaveSettings}
                 className="bg-brand-600 hover:bg-brand-500 text-cream-100 text-xs font-bold py-2.5 px-6 rounded-xl shadow-lg shadow-brand-600/20 dark:shadow-brand-950/60 transition cursor-pointer"
               >
-                Save Preferences
+                Save Settings
               </button>
-            </div>
-          </div>
-        )}
-
-        {/* Tab - Credentials / Passwords Vault */}
-        {activeTab === 'credentials' && (
-          <div className="p-8 overflow-y-auto max-w-5xl mx-auto w-full flex flex-col gap-6 animate-fade-in">
-            <div className="pb-4 border-b border-brand-800/15 flex justify-between items-center">
-              <div>
-                <h2 className="ui-page-title">Passwords Vault</h2>
-                <p className="ui-subtitle">Manage site-specific credentials saved by the auto-fill floating widget.</p>
-              </div>
-              <div className="relative">
-                <Search className="w-4 h-4 text-brand-600/50 dark:text-cream-100/50 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder="Search domain..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="ui-input rounded-xl pl-9 pr-4 py-1.5 text-xs focus:outline-none w-60"
-                />
-              </div>
-            </div>
-
-            <div className="ui-panel-soft rounded-2xl overflow-hidden mt-2">
-              <div className="ui-table-bar">
-                Saved Accounts
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b ui-border-subtle ui-table-head">
-                      <th className="p-4">Site / Domain</th>
-                      <th className="p-4">Username / Email</th>
-                      <th className="p-4">Password</th>
-                      <th className="p-4 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-brand-800/15 text-xs">
-                    {credentials
-                      .filter(c => c.domain.toLowerCase().includes(searchQuery.toLowerCase()) || c.username.toLowerCase().includes(searchQuery.toLowerCase()))
-                      .map(c => {
-                        const isVisible = visiblePasswords[c.id] || false;
-                        return (
-                          <tr key={c.id} className="ui-table-row">
-                            <td className="p-4 font-semibold ui-heading">{c.domain}</td>
-                            <td className="p-4 font-mono">{c.username || <span className="ui-muted">None</span>}</td>
-                            <td className="p-4 font-mono">
-                              <div className="flex items-center gap-2">
-                                <span className="min-w-[100px]">{isVisible ? c.password : '••••••••••••'}</span>
-                                <button
-                                  onClick={() => setVisiblePasswords({ ...visiblePasswords, [c.id]: !isVisible })}
-                                  className="p-1 rounded ui-muted hover:text-brand-700 dark:hover:text-cream-100 transition hover:bg-cream-200 dark:hover:bg-brand-800/50"
-                                >
-                                  {isVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                                </button>
-                              </div>
-                            </td>
-                            <td className="p-4 text-right">
-                              <button
-                                onClick={() => handleDeleteCredential(c.id)}
-                                className="ui-icon-btn hover:text-rose-500 dark:hover:text-rose-300"
-                                title="Delete credential"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    {credentials.length === 0 && (
-                      <tr>
-                        <td colSpan={4} className="text-center py-10 ui-empty">
-                          No credentials saved. Save passwords on login forms using the page floating widget.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
             </div>
           </div>
         )}

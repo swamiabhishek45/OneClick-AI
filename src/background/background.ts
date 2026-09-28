@@ -1,27 +1,19 @@
-import { 
-  initDb, 
-  getProfiles, 
-  saveProfile, 
-  getResumes, 
-  saveResume, 
-  getTemplates, 
-  getTemplateByDomain, 
-  saveTemplate, 
-  getManualMappingsByDomain, 
-  saveManualMapping, 
-  getLearningMappings, 
-  saveLearningMapping, 
-  addHistoryEntry, 
-  getDomainRule, 
-  saveDomainRule, 
+import {
+  initDb,
+  getProfiles,
+  saveProfile,
+  getResumes,
+  saveResume,
+  getManualMappingsByDomain,
+  saveManualMapping,
+  getLearningMappings,
+  getDomainRule,
+  saveDomainRule,
   getAppSettings,
   saveAppSettings,
-  getActiveProfileId, 
+  getActiveProfileId,
   setActiveProfileId,
-  getCredentials,
-  saveCredential,
-  deleteCredential,
-  getCredentialByDomain
+  clearLearningMappings,
 } from '../shared/db';
 import {
   matchFieldHeuristically,
@@ -40,6 +32,7 @@ import {
   ResumeFilePayload,
   scoreResumeFileField,
 } from '../shared/resumeAutofill';
+import { buildExportBundle, parseExportBundle } from '../shared/profileExport';
 
 async function loadDefaultResumePayload(): Promise<ResumeFilePayload | null> {
   const resumes = await getResumes();
@@ -72,9 +65,8 @@ void initDb().catch((err) => {
   console.error('Database initialization failed on worker start:', err);
 });
 
-// Initialize Database on install or worker start
 chrome.runtime.onInstalled.addListener(async () => {
-  console.log("OneClick Autofill AI installed.");
+  console.log('OneClick Autofill AI installed.');
   try {
     await initDb();
     const profiles = await getProfiles();
@@ -87,26 +79,36 @@ chrome.runtime.onInstalled.addListener(async () => {
       await saveProfile(createEmptyStarterProfile());
     }
   } catch (err) {
-    console.error("Database initialization failed on install:", err);
+    console.error('Database initialization failed on install:', err);
   }
 });
 
-// Listener to open Options Page
-chrome.action.onClicked.addListener(() => {
-  chrome.runtime.openOptionsPage();
+chrome.commands.onCommand.addListener(async (command) => {
+  if (command !== 'fill-active-page') return;
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  const tabId = tabs[0]?.id;
+  if (!tabId) return;
+  const profileId = await getActiveProfileId();
+  chrome.tabs.sendMessage(tabId, {
+    action: 'triggerAutofill',
+    profileId,
+    force: false,
+  });
 });
 
-// Message Coordinator
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   handleMessage(message, sender, sendResponse);
-  return true; // Keeps channel open for asynchronous reply
+  return true;
 });
 
-async function handleMessage(message: any, sender: chrome.runtime.MessageSender, sendResponse: (response: any) => void) {
+async function handleMessage(
+  message: any,
+  sender: chrome.runtime.MessageSender,
+  sendResponse: (response: any) => void
+) {
   try {
     await initDb();
     switch (message.action) {
-      
       case 'openOptionsPage':
         chrome.runtime.openOptionsPage();
         sendResponse({ success: true });
@@ -143,36 +145,6 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
         break;
       }
 
-      case 'getCredentials': {
-        const credentials = await getCredentials();
-        sendResponse({ credentials });
-        break;
-      }
-
-      case 'getCredentialForDomain': {
-        const credential = await getCredentialByDomain(message.domain);
-        sendResponse({ credential });
-        break;
-      }
-
-      case 'saveCredential': {
-        await saveCredential({
-          id: message.credential.id || Math.random().toString(36).substring(2),
-          createdAt: new Date().toISOString(),
-          ...message.credential
-        });
-        notifyContentScriptsDataUpdated();
-        sendResponse({ success: true });
-        break;
-      }
-
-      case 'deleteCredential': {
-        await deleteCredential(message.id);
-        notifyContentScriptsDataUpdated();
-        sendResponse({ success: true });
-        break;
-      }
-
       case 'getDomainRule': {
         const rule = await getDomainRule(message.domain);
         sendResponse({ rule });
@@ -182,6 +154,13 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
       case 'getAppSettings': {
         const settings = await getAppSettings();
         sendResponse({ settings });
+        break;
+      }
+
+      case 'saveAppSettings': {
+        await saveAppSettings(message.settings);
+        notifyContentScriptsDataUpdated();
+        sendResponse({ success: true });
         break;
       }
 
@@ -211,7 +190,32 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
         break;
       }
 
-      // Fields Matcher (incorporates Heuristic + Manual Mappings + website templates + Gemini API)
+      case 'exportData': {
+        const profiles = await getProfiles();
+        const resumes = await getResumes();
+        sendResponse({ bundle: buildExportBundle(profiles, resumes) });
+        break;
+      }
+
+      case 'importData': {
+        const bundle = parseExportBundle(message.json);
+        for (const profile of bundle.profiles) {
+          await saveProfile(profile);
+        }
+        for (const resume of bundle.resumes) {
+          await saveResume(resume);
+        }
+        notifyContentScriptsDataUpdated();
+        sendResponse({ success: true, profileCount: bundle.profiles.length });
+        break;
+      }
+
+      case 'clearLearnedMappings': {
+        await clearLearningMappings();
+        sendResponse({ success: true });
+        break;
+      }
+
       case 'matchFields': {
         const fields = message.fields as ScannedFieldMetadata[];
         const profileId = message.profileId;
@@ -227,10 +231,11 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
         }
 
         const settings = await getAppSettings();
-        const learningMappings = await getLearningMappings();
+        const learningMappings = settings.learnFromCorrections
+          ? await getLearningMappings()
+          : [];
         const domain = sender.url ? new URL(sender.url).hostname : '';
         const manualMappings = await getManualMappingsByDomain(domain);
-        const template = await getTemplateByDomain(domain);
 
         const matches: Record<string, MatchResult> = {};
         let geminiWarning: string | undefined;
@@ -284,26 +289,6 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
             }
           }
 
-          if (template) {
-            const rule = template.rules.find(
-              (r) =>
-                r.selector === field.htmlId ||
-                r.selector === `#${field.htmlId}` ||
-                r.selector.includes(field.htmlName)
-            );
-            if (rule) {
-              const val = rule.customValue || getProfileValueByPath(profile, rule.fieldPath);
-              if (val) {
-                matches[field.scanId] = {
-                  fieldPath: rule.fieldPath,
-                  confidence: 1.0,
-                  matchedValue: val,
-                };
-                continue;
-              }
-            }
-          }
-
           await applyHeuristicMatch(field);
         }
 
@@ -338,7 +323,6 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
           }
         }
 
-        // Long-form fields need generated answers — drop short heuristic keyword hits (e.g. "experience" → "1+").
         for (const field of fields) {
           const type = (field.type || '').toLowerCase();
           if (type !== 'textarea' && type !== 'contenteditable' && type !== 'textbox') {
@@ -359,23 +343,18 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
         const provider = settings.ai.provider;
         const hasApiKey = Boolean(apiKey);
         const offlineOnly = provider === 'heuristic';
-        const wantsGeminiMapping =
-          !offlineOnly &&
-          hasApiKey &&
-          (provider === 'hybrid' || provider === 'gemini');
+        const wantsGemini =
+          !offlineOnly && hasApiKey;
         const wantsGeminiAnswers =
-          !offlineOnly &&
-          hasApiKey &&
-          settings.ai.answerOpenQuestions !== false;
+          wantsGemini && settings.ai.answerOpenQuestions !== false;
 
         if (offlineOnly && stillUnmatched.length > 0) {
-          /* No Gemini calls in offline-only mode */
+          /* offline only */
         } else if (!hasApiKey && stillUnmatched.some(isOpenEndedQuestionField)) {
-          geminiWarning =
-            'Gemini API key missing. Add your key in Dashboard → Settings & AI.';
+          geminiWarning = 'Gemini API key missing. Add your key in Dashboard → Settings.';
         }
 
-        if (stillUnmatched.length > 0 && (wantsGeminiMapping || wantsGeminiAnswers)) {
+        if (stillUnmatched.length > 0 && wantsGemini) {
           try {
             const aiFilled = await resolveUnmatchedFieldsWithGemini(
               stillUnmatched,
@@ -384,7 +363,7 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
               settings.ai.geminiModel,
               {
                 jobDescription: jdContext,
-                includeProfileMapping: wantsGeminiMapping,
+                includeProfileMapping: true,
                 includeGeneratedAnswers: wantsGeminiAnswers,
               }
             );
@@ -444,71 +423,31 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
         await saveManualMapping({
           id: Math.random().toString(36).substring(2),
           createdAt: new Date().toISOString(),
-          ...message.mapping
+          ...message.mapping,
         });
         sendResponse({ success: true });
         break;
       }
 
-      case 'saveWebsiteTemplate': {
-        // Scanner gets currently filled values and creates rules
-        // In this implementation, background can query active tab input fields
-        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-        const activeTab = tabs[0];
-        if (activeTab && activeTab.id) {
-          // Inject script or send message to fetch currently loaded form fields and their values
-          chrome.tabs.sendMessage(activeTab.id, { action: 'triggerAutofill', profileId: 'default' }, async () => {
-            if (chrome.runtime.lastError) {
-              sendResponse({ success: false, error: 'Cannot connect to tab. Please reload the webpage.' });
-              return;
-            }
-            // Placeholder template save
-            const newTemplate = {
-              id: Math.random().toString(36).substring(2),
-              domain: message.domain,
-              name: `${message.domain} Template`,
-              rules: [],
-              createdAt: new Date().toISOString()
-            };
-            await saveTemplate(newTemplate);
-            sendResponse({ success: true });
-          });
-        } else {
-          sendResponse({ success: false, error: 'No active tab' });
-        }
-        break;
-      }
-
       case 'learnCorrection': {
+        const settings = await getAppSettings();
+        if (!settings.learnFromCorrections) {
+          sendResponse({ success: true, skipped: true });
+          break;
+        }
         const { label, currentValue, previousPath } = message;
         const activeId = await getActiveProfileId();
         const profiles = await getProfiles();
-        const profile = profiles.find(p => p.id === activeId) || profiles[0];
-        
+        const profile = profiles.find((p) => p.id === activeId) || profiles[0];
+
         if (profile) {
           const correctedPath = findProfilePathForValue(profile, currentValue);
           if (correctedPath) {
             await learnUserCorrection(label, correctedPath);
           } else {
-            // Keep previous but lower score if it was changed to something not in profile
             await learnUserCorrection(label, previousPath);
           }
         }
-        sendResponse({ success: true });
-        break;
-      }
-
-      case 'logHistory': {
-        const profiles = await getProfiles();
-        const profile = profiles.find(p => p.id === message.profileId) || profiles[0];
-        
-        await addHistoryEntry({
-          id: Math.random().toString(36).substring(2),
-          domain: message.domain,
-          timestamp: new Date().toISOString(),
-          fieldsCount: message.fieldsCount,
-          profileName: profile ? profile.name : 'Unknown Profile'
-        });
         sendResponse({ success: true });
         break;
       }
@@ -517,35 +456,30 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
         sendResponse({ error: 'Unknown action' });
     }
   } catch (error: any) {
-    console.error("Background message handler error:", error);
+    console.error('Background message handler error:', error);
     sendResponse({ success: false, error: error.message });
   }
 }
 
-// Find key path inside profile object matching value
 function findProfilePathForValue(profile: UserProfile, value: string): string | null {
   const checkVal = String(value).toLowerCase().trim();
   if (!checkVal) return null;
 
-  // Search personal
   for (const [key, val] of Object.entries(profile.personal)) {
     if (String(val).toLowerCase().trim() === checkVal) {
       return `personal.${key}`;
     }
   }
-  // Search professional
   for (const [key, val] of Object.entries(profile.professional)) {
     if (String(val).toLowerCase().trim() === checkVal) {
       return `professional.${key}`;
     }
   }
-  // Search jobInfo
   for (const [key, val] of Object.entries(profile.jobInfo)) {
     if (String(val).toLowerCase().trim() === checkVal) {
       return `jobInfo.${key}`;
     }
   }
-  // Search education
   if (profile.education) {
     for (const [level, levelObj] of Object.entries(profile.education)) {
       if (levelObj && typeof levelObj === 'object') {
@@ -558,7 +492,6 @@ function findProfilePathForValue(profile: UserProfile, value: string): string | 
     }
   }
 
-  // Search custom fields
   for (const cf of profile.customFields) {
     if (String(cf.value).toLowerCase().trim() === checkVal) {
       return `custom:${cf.id}`;
@@ -567,14 +500,12 @@ function findProfilePathForValue(profile: UserProfile, value: string): string | 
   return null;
 }
 
-// Notify all open tabs/content scripts that extension data has changed
 function notifyContentScriptsDataUpdated() {
   chrome.tabs.query({}, (tabs) => {
     for (const tab of tabs) {
       if (tab.id) {
         chrome.tabs.sendMessage(tab.id, { action: 'dataUpdated' }, () => {
-          // Access lastError to silence connection errors on un-injected tabs
-          const err = chrome.runtime.lastError;
+          void chrome.runtime.lastError;
         });
       }
     }

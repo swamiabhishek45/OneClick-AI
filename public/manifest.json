@@ -6,8 +6,7 @@
   "permissions": [
     "storage",
     "activeTab",
-    "tabs",
-    "unlimitedStorage"
+    "tabs"
   ],
   "host_permissions": [
     "<all_urls>",
@@ -41,9 +40,18 @@
       "matches": ["<all_urls>"],
       "js": ["content.js"],
       "run_at": "document_idle",
-      "all_frames": true
+      "all_frames": false
     }
   ],
+  "commands": {
+    "fill-active-page": {
+      "suggested_key": {
+        "default": "Alt+Shift+F",
+        "mac": "Alt+Shift+F"
+      },
+      "description": "Autofill the active tab"
+    }
+  },
   "web_accessible_resources": [
     {
       "resources": [

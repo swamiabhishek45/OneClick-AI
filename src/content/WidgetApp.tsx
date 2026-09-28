@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
-import { Sparkles, Edit3, Settings, Save, X, Minimize2, ToggleLeft, ToggleRight, Key } from 'lucide-react';
-import { UserProfile, DomainRule } from '../shared/types';
+import { Sparkles, Edit3, Settings, X, Minimize2 } from 'lucide-react';
+import { UserProfile } from '../shared/types';
 import { ExtensionLogo } from '../shared/ExtensionLogo';
 import { applyThemeSetting, initExtensionTheme, watchThemeChanges } from '../shared/theme';
 import {
@@ -9,8 +9,6 @@ import {
   onExtensionContextInvalidated,
   sendExtensionMessage,
 } from '../shared/extensionRuntime';
-
-import { findLoginFields } from './FormScanner';
 
 const EXT_RELOAD_MSG =
   'Extension was reloaded. Refresh this page to use OneClick Autofill AI again.';
@@ -26,15 +24,8 @@ export default function WidgetApp() {
   const [isMappingMode, setIsMappingMode] = useState(false);
   const [selectedElementForMap, setSelectedElementForMap] = useState<HTMLElement | null>(null);
   const [selectedFieldForMap, setSelectedFieldForMap] = useState('');
-  const [domainRule, setDomainRule] = useState<DomainRule>({
-    domain: window.location.hostname,
-    enabled: true,
-    autoFillOnLoad: true,
-    requireConfirmation: false
-  });
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'info' | 'success' | 'error' } | null>(null);
   const [isFilling, setIsFilling] = useState(false);
-  const [hasPasswordField, setHasPasswordField] = useState(false);
   
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -166,7 +157,6 @@ export default function WidgetApp() {
 
   const openPanel = () => {
     fabAnchorTopRef.current = anchorPosition.top;
-    setHasPasswordField(document.querySelector('input[type="password"]') !== null);
     setExpanded(true);
   };
 
@@ -194,13 +184,6 @@ export default function WidgetApp() {
       setActiveProfileId(activeResponse.activeProfileId);
     }
 
-    const ruleResponse = await sendExtensionMessage<{ rule?: DomainRule }>({
-      action: 'getDomainRule',
-      domain: window.location.hostname,
-    });
-    if (ruleResponse?.rule) {
-      setDomainRule(ruleResponse.rule);
-    }
   };
 
   // Show status flash
@@ -309,18 +292,6 @@ export default function WidgetApp() {
         detail: { profileId: activeProfileId, force: false },
       })
     );
-  };
-
-  const handleSaveTemplate = async () => {
-    const response = await sendExtensionMessage<{ success?: boolean; error?: string }>({
-      action: 'saveWebsiteTemplate',
-      domain: window.location.hostname,
-    });
-    if (response?.success) {
-      showStatus('Template saved for this domain!', 'success');
-    } else {
-      showStatus(response?.error || EXT_RELOAD_MSG, 'error');
-    }
   };
 
   // Manual Mapping Workflow
@@ -439,74 +410,6 @@ export default function WidgetApp() {
     void sendExtensionMessage({ action: 'openOptionsPage' });
   };
 
-  const toggleDomainEnable = () => {
-    const enabling = !domainRule.enabled;
-    const updated = {
-      ...domainRule,
-      enabled: enabling,
-      autoFillOnLoad: enabling ? true : domainRule.autoFillOnLoad,
-    };
-    setDomainRule(updated);
-    void (async () => {
-      await sendExtensionMessage({ action: 'saveDomainRule', rule: updated });
-      showStatus(
-        enabling ? 'Autofill enabled — forms will fill automatically' : 'Autofill disabled for this site',
-        'info'
-      );
-      if (enabling) {
-        window.dispatchEvent(
-          new CustomEvent('oneclick-request-autofill', {
-            detail: { profileId: activeProfileId, force: false },
-          })
-        );
-      }
-    })();
-  };
-
-  const toggleAutoFillOnLoad = () => {
-    const updated = { ...domainRule, autoFillOnLoad: !domainRule.autoFillOnLoad };
-    setDomainRule(updated);
-    void (async () => {
-      await sendExtensionMessage({ action: 'saveDomainRule', rule: updated });
-      showStatus(
-        updated.autoFillOnLoad ? 'Auto-fill on page load enabled' : 'Auto-fill on page load disabled',
-        'info'
-      );
-    })();
-  };
-
-  const handleSaveCredentials = () => {
-    const { username, password } = findLoginFields();
-    if (!password) {
-      showStatus("No password input field found on this page.", "error");
-      return;
-    }
-    
-    const usernameVal = username ? username.value.trim() : '';
-    const passwordVal = password.value.trim();
-    
-    if (!passwordVal) {
-      showStatus("Please enter password on the page first.", "error");
-      return;
-    }
-    
-    void (async () => {
-      const response = await sendExtensionMessage<{ success?: boolean; error?: string }>({
-        action: 'saveCredential',
-        credential: {
-          domain: window.location.hostname,
-          username: usernameVal,
-          password: passwordVal,
-        },
-      });
-      if (response?.success) {
-        showStatus('Credentials saved locally!', 'success');
-      } else {
-        showStatus(response?.error || 'Failed to save credentials.', 'error');
-      }
-    })();
-  };
-
   const activeProfile = profiles.find(p => p.id === activeProfileId) || profiles[0];
 
   const panelWidth = `min(${PANEL_WIDTH}px, calc(100vw - ${VIEWPORT_MARGIN * 2}px))`;
@@ -610,33 +513,12 @@ export default function WidgetApp() {
                 <option value="professional.github">GitHub Link</option>
                 <option value="professional.portfolio">Portfolio Link</option>
               </optgroup>
-              <optgroup label="10th Class Education">
-                <option value="education.tenth.schoolOrCollege">10th School Name</option>
-                <option value="education.tenth.degree">10th Board</option>
-                <option value="education.tenth.fieldOfStudy">10th Stream/Subjects</option>
-                <option value="education.tenth.passingYear">10th Passing Year</option>
-                <option value="education.tenth.grade">10th Grade/CGPA/%</option>
-              </optgroup>
-              <optgroup label="12th Class / Diploma">
-                <option value="education.twelfthOrDiploma.schoolOrCollege">12th/Diploma School/College</option>
-                <option value="education.twelfthOrDiploma.degree">12th/Diploma Degree/Board</option>
-                <option value="education.twelfthOrDiploma.fieldOfStudy">12th/Diploma Stream</option>
-                <option value="education.twelfthOrDiploma.passingYear">12th/Diploma Passing Year</option>
-                <option value="education.twelfthOrDiploma.grade">12th/Diploma Grade/CGPA/%</option>
-              </optgroup>
-              <optgroup label="Undergraduate (UG)">
-                <option value="education.ug.schoolOrCollege">UG College/University</option>
-                <option value="education.ug.degree">UG Degree</option>
-                <option value="education.ug.fieldOfStudy">UG Stream/Major</option>
-                <option value="education.ug.passingYear">UG Passing Year</option>
-                <option value="education.ug.grade">UG Grade/CGPA/%</option>
-              </optgroup>
-              <optgroup label="Postgraduate (PG)">
-                <option value="education.pg.schoolOrCollege">PG College/University</option>
-                <option value="education.pg.degree">PG Degree</option>
-                <option value="education.pg.fieldOfStudy">PG Stream/Major</option>
-                <option value="education.pg.passingYear">PG Passing Year</option>
-                <option value="education.pg.grade">PG Grade/CGPA/%</option>
+              <optgroup label="Education">
+                <option value="education.ug.schoolOrCollege">College / University</option>
+                <option value="education.ug.degree">Degree</option>
+                <option value="education.ug.fieldOfStudy">Major / Field</option>
+                <option value="education.ug.passingYear">Graduation year</option>
+                <option value="education.ug.grade">Grade / CGPA</option>
               </optgroup>
               <optgroup label="Job Search / Comp">
                 <option value="jobInfo.currentCTC">Current CTC</option>
@@ -755,80 +637,13 @@ export default function WidgetApp() {
               {isFilling ? 'Filling Form...' : 'Autofill Page'}
             </button>
 
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={startManualMapping}
-                className="py-2.5 px-3 rounded-lg bg-white border border-brand-800/20 hover:bg-cream-200 text-brand-800 text-sm font-medium transition flex items-center justify-center gap-2 cursor-pointer min-h-[44px]"
-              >
-                <Edit3 className="w-4 h-4 text-brand-600 shrink-0" />
-                <span className="truncate">Manual Map</span>
-              </button>
-              <button
-                onClick={handleSaveTemplate}
-                className="py-2.5 px-3 rounded-lg bg-white border border-brand-800/20 hover:bg-cream-200 text-brand-800 text-sm font-medium transition flex items-center justify-center gap-2 cursor-pointer min-h-[44px]"
-              >
-                <Save className="w-4 h-4 text-brand-600 shrink-0" />
-                <span className="truncate">Save Template</span>
-              </button>
-            </div>
-            {hasPasswordField && (
-              <button
-                onClick={handleSaveCredentials}
-                className="w-full py-2.5 px-3 rounded-lg bg-white border border-brand-800/20 hover:bg-cream-200 text-brand-800 text-sm font-medium transition flex items-center justify-center gap-2 cursor-pointer min-h-[44px]"
-              >
-                <Key className="w-4 h-4 text-brand-700 shrink-0" />
-                Save Credentials
-              </button>
-            )}
-          </div>
-
-          {/* Quick Settings & Status */}
-          <div className="border-t border-brand-800/15 pt-4 flex flex-col gap-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <span className="text-sm text-brand-900 font-medium block leading-snug">
-                  Automatic filling on this site
-                </span>
-                <p className="text-xs text-brand-700/65 mt-1 leading-relaxed">
-                  Fill empty fields when the page loads or changes
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={toggleDomainEnable}
-                aria-pressed={domainRule.enabled}
-                className="text-brand-700/75 hover:text-brand-900 transition cursor-pointer shrink-0 p-1 -mr-1"
-              >
-                {domainRule.enabled ? (
-                  <ToggleRight className="w-9 h-9 text-brand-600" />
-                ) : (
-                  <ToggleLeft className="w-9 h-9 text-brand-400" />
-                )}
-              </button>
-            </div>
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <span className="text-sm text-brand-900 font-medium block leading-snug">
-                  Auto-fill when page loads
-                </span>
-                <p className="text-xs text-brand-700/65 mt-1 leading-relaxed">
-                  Matches and fills empty fields automatically
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={toggleAutoFillOnLoad}
-                disabled={!domainRule.enabled}
-                aria-pressed={domainRule.autoFillOnLoad && domainRule.enabled}
-                className="text-brand-700/75 hover:text-brand-900 transition cursor-pointer disabled:opacity-40 shrink-0 p-1 -mr-1"
-              >
-                {domainRule.autoFillOnLoad && domainRule.enabled ? (
-                  <ToggleRight className="w-9 h-9 text-brand-600" />
-                ) : (
-                  <ToggleLeft className="w-9 h-9 text-brand-400" />
-                )}
-              </button>
-            </div>
+            <button
+              onClick={startManualMapping}
+              className="w-full py-2.5 px-3 rounded-lg bg-white border border-brand-800/20 hover:bg-cream-200 text-brand-800 text-sm font-medium transition flex items-center justify-center gap-2 cursor-pointer min-h-[44px]"
+            >
+              <Edit3 className="w-4 h-4 text-brand-600 shrink-0" />
+              Map a field on this page
+            </button>
           </div>
 
           {/* Toast Notification area */}

@@ -77,33 +77,11 @@ export interface Resume {
   isDefault?: boolean;
 }
 
-export interface SavedCredential {
-  id: string;
-  domain: string;
-  username: string;
-  password: string;
-  createdAt: string;
-}
-
 export interface ManualMapping {
   id: string;
   domain: string;
   selector: string; // CSS selector of input field
   fieldPath: string; // e.g. 'personal.fullName' or 'custom:uuid'
-  createdAt: string;
-}
-
-export interface TemplateRule {
-  selector: string;
-  fieldPath: string;
-  customValue?: string;
-}
-
-export interface WebsiteTemplate {
-  id: string;
-  domain: string;
-  name: string;
-  rules: TemplateRule[];
   createdAt: string;
 }
 
@@ -116,13 +94,12 @@ export interface LearningMapping {
 }
 
 export interface AISettings {
-  /** heuristic = offline only; hybrid = offline first + Gemini for gaps; gemini = Gemini mapping + answers */
-  provider: 'heuristic' | 'hybrid' | 'gemini';
+  /** heuristic = offline only; hybrid = offline first + Gemini for gaps */
+  provider: 'heuristic' | 'hybrid';
   geminiApiKey: string;
-  geminiModel: string; // e.g., 'gemini-2.0-flash'
-  /** Use Gemini to answer open-ended / unmatched questions from profile + job description */
+  geminiModel: string;
   answerOpenQuestions: boolean;
-  /** Include scraped job description text in Gemini prompts */
+  /** Include job description text in Gemini prompts (manual fill only) */
   useJobDescriptionContext: boolean;
 }
 
@@ -133,16 +110,16 @@ export interface DomainRule {
   requireConfirmation: boolean;
 }
 
-export interface FillHistoryEntry {
-  id: string;
-  domain: string;
-  timestamp: string;
-  fieldsCount: number;
-  profileName: string;
-}
-
 export interface AppSettings {
   ai: AISettings;
   theme: 'light' | 'dark' | 'system';
   globalEnabled: boolean;
+  /** Remember field label corrections after you edit autofilled values */
+  learnFromCorrections: boolean;
+  /** Empty = all sites; otherwise only these hostnames (e.g. greenhouse.io) */
+  siteAllowlist: string[];
+  /** Confirm how many fields will be filled before applying */
+  showFillPreview: boolean;
+  /** Opt-in: scan and fill empty fields when a page loads (allowed sites only) */
+  autoFillOnLoad: boolean;
 }

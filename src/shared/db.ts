@@ -1,4 +1,4 @@
-import { UserProfile, Resume, ManualMapping, WebsiteTemplate, LearningMapping, DomainRule, FillHistoryEntry, AppSettings, SavedCredential } from './types';
+import { UserProfile, Resume, ManualMapping, LearningMapping, DomainRule, AppSettings } from './types';
 
 const DB_NAME = 'OneClickAutofillDB';
 const DB_VERSION = 2;
@@ -131,47 +131,6 @@ export async function deleteResume(id: string): Promise<void> {
   });
 }
 
-// Templates CRUD
-export async function getTemplates(): Promise<WebsiteTemplate[]> {
-  const store = await getStore('templates');
-  return new Promise((resolve, reject) => {
-    const request = store.getAll();
-    request.onsuccess = () => resolve(request.result || []);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-export async function getTemplateByDomain(domain: string): Promise<WebsiteTemplate | null> {
-  const db = await initDb();
-  const transaction = db.transaction('templates', 'readonly');
-  const store = transaction.objectStore('templates');
-  const index = store.index('domain');
-  
-  return new Promise((resolve) => {
-    const request = index.get(domain);
-    request.onsuccess = () => resolve(request.result || null);
-    request.onerror = () => resolve(null);
-  });
-}
-
-export async function saveTemplate(template: WebsiteTemplate): Promise<void> {
-  const store = await getStore('templates', 'readwrite');
-  return new Promise((resolve, reject) => {
-    const request = store.put(template);
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
-  });
-}
-
-export async function deleteTemplate(id: string): Promise<void> {
-  const store = await getStore('templates', 'readwrite');
-  return new Promise((resolve, reject) => {
-    const request = store.delete(id);
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
-  });
-}
-
 // Manual Mappings CRUD
 export async function getManualMappings(): Promise<ManualMapping[]> {
   const store = await getStore('manualMappings');
@@ -245,32 +204,8 @@ export async function saveLearningMapping(learning: LearningMapping): Promise<vo
   });
 }
 
-// History CRUD
-export async function getHistory(): Promise<FillHistoryEntry[]> {
-  const store = await getStore('history');
-  return new Promise((resolve, reject) => {
-    const request = store.getAll();
-    request.onsuccess = () => {
-      const results = request.result || [];
-      // Sort by timestamp descending
-      results.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-      resolve(results);
-    };
-    request.onerror = () => reject(request.error);
-  });
-}
-
-export async function addHistoryEntry(entry: FillHistoryEntry): Promise<void> {
-  const store = await getStore('history', 'readwrite');
-  return new Promise((resolve, reject) => {
-    const request = store.put(entry);
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
-  });
-}
-
-export async function clearHistory(): Promise<void> {
-  const store = await getStore('history', 'readwrite');
+export async function clearLearningMappings(): Promise<void> {
+  const store = await getStore('learning', 'readwrite');
   return new Promise((resolve, reject) => {
     const request = store.clear();
     request.onsuccess = () => resolve();
@@ -293,10 +228,10 @@ export async function getDomainRule(domain: string): Promise<DomainRule> {
   return new Promise((resolve) => {
     const request = store.get(domain);
     request.onsuccess = () => {
-      resolve(request.result || { domain, enabled: true, autoFillOnLoad: true, requireConfirmation: false });
+      resolve(request.result || { domain, enabled: true, autoFillOnLoad: false, requireConfirmation: false });
     };
     request.onerror = () => {
-      resolve({ domain, enabled: true, autoFillOnLoad: true, requireConfirmation: false });
+      resolve({ domain, enabled: true, autoFillOnLoad: false, requireConfirmation: false });
     };
   });
 }
@@ -321,27 +256,40 @@ const DEFAULT_SETTINGS: AppSettings = {
   },
   theme: 'light',
   globalEnabled: true,
+  learnFromCorrections: true,
+  siteAllowlist: [],
+  showFillPreview: true,
+  autoFillOnLoad: false,
 };
+
+function normalizeAppSettings(stored: Partial<AppSettings> | undefined): AppSettings {
+  const aiRaw: Partial<AppSettings['ai']> = stored?.ai ?? {};
+  const provider =
+    aiRaw.provider === 'heuristic' || aiRaw.provider === 'hybrid'
+      ? aiRaw.provider
+      : 'hybrid';
+
+  return {
+    ...DEFAULT_SETTINGS,
+    ...stored,
+    ai: { ...DEFAULT_SETTINGS.ai, ...aiRaw, provider },
+    learnFromCorrections: stored?.learnFromCorrections !== false,
+    siteAllowlist: Array.isArray(stored?.siteAllowlist) ? stored.siteAllowlist : [],
+    showFillPreview: stored?.showFillPreview !== false,
+    autoFillOnLoad: stored?.autoFillOnLoad === true,
+  };
+}
 
 export function getAppSettings(): Promise<AppSettings> {
   return new Promise((resolve) => {
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
       chrome.storage.local.get(['settings'], (result) => {
         const stored = result.settings as AppSettings | undefined;
-        if (!stored) {
-          resolve(DEFAULT_SETTINGS);
-          return;
-        }
-        resolve({
-          ...DEFAULT_SETTINGS,
-          ...stored,
-          ai: { ...DEFAULT_SETTINGS.ai, ...stored.ai },
-        });
+        resolve(normalizeAppSettings(stored));
       });
     } else {
-      // Fallback for non-extension environment (testing/dev mockup)
       const local = localStorage.getItem('autofill_settings');
-      resolve(local ? JSON.parse(local) : DEFAULT_SETTINGS);
+      resolve(local ? normalizeAppSettings(JSON.parse(local)) : DEFAULT_SETTINGS);
     }
   });
 }
@@ -384,43 +332,3 @@ export function setActiveProfileId(id: string): Promise<void> {
   });
 }
 
-// Credentials CRUD
-export async function getCredentials(): Promise<SavedCredential[]> {
-  const store = await getStore('credentials');
-  return new Promise((resolve, reject) => {
-    const request = store.getAll();
-    request.onsuccess = () => resolve(request.result || []);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-export async function getCredentialByDomain(domain: string): Promise<SavedCredential | null> {
-  const db = await initDb();
-  const transaction = db.transaction('credentials', 'readonly');
-  const store = transaction.objectStore('credentials');
-  const index = store.index('domain');
-
-  return new Promise((resolve) => {
-    const request = index.get(domain);
-    request.onsuccess = () => resolve(request.result || null);
-    request.onerror = () => resolve(null);
-  });
-}
-
-export async function saveCredential(credential: SavedCredential): Promise<void> {
-  const store = await getStore('credentials', 'readwrite');
-  return new Promise((resolve, reject) => {
-    const request = store.put(credential);
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
-  });
-}
-
-export async function deleteCredential(id: string): Promise<void> {
-  const store = await getStore('credentials', 'readwrite');
-  return new Promise((resolve, reject) => {
-    const request = store.delete(id);
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
-  });
-}

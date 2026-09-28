@@ -1,12 +1,13 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import WidgetApp from './WidgetApp';
-import { scanFormFields, findLoginFields } from './FormScanner';
+import { scanFormFields } from './FormScanner';
 import { extractJobDescription } from './JobDescriptionScanner';
 import { fillFormFields, fillFormFieldsAsync, isFieldEmpty } from './AutofillEngine';
 import { AI_GENERATED_FIELD_PATH, AUTO_FILL_CONFIDENCE_THRESHOLD } from '../shared/ai';
 import { isDefaultResumeMatchValue } from '../shared/resumeAutofill';
-import { DomainRule } from '../shared/types';
+import { AppSettings } from '../shared/types';
+import { isHostAllowed } from '../shared/siteAccess';
 import {
   addExtensionMessageListener,
   getExtensionURL,
@@ -89,8 +90,10 @@ const filledFieldsMap = new Map<HTMLElement, {
 let autofillInProgress = false;
 let lastAutofillAt = 0;
 let mutationObserver: MutationObserver | null = null;
+let widgetMounted = false;
 
 function initWidget() {
+  if (widgetMounted) return;
   if (!isExtensionContextValid()) return;
   if (document.getElementById('oneclick-autofill-root')) return;
 
@@ -118,22 +121,51 @@ function initWidget() {
 
   const root = createRoot(container);
   root.render(<WidgetApp />);
+  widgetMounted = true;
 }
 
-async function fetchDomainRule(): Promise<DomainRule | null> {
-  const response = await sendExtensionMessage<{ rule?: DomainRule }>({
-    action: 'getDomainRule',
-    domain: window.location.hostname,
-  });
-  return response?.rule ?? null;
+function scheduleWidgetInit() {
+  if (widgetMounted || !isTopFrame()) return;
+  initWidget();
 }
 
-async function fetchGlobalEnabled(): Promise<boolean> {
-  const response = await sendExtensionMessage<{ settings?: { globalEnabled?: boolean } }>({
+function setupLazyWidgetMount() {
+  const tryDetectForms = () => {
+    const { elements } = scanAllFormFields();
+    if (elements.length > 0) {
+      scheduleWidgetInit();
+    }
+  };
+
+  window.setTimeout(tryDetectForms, 800);
+
+  const onFirstInteraction = () => {
+    scheduleWidgetInit();
+    window.removeEventListener('pointerdown', onFirstInteraction, true);
+    window.removeEventListener('keydown', onFirstInteraction, true);
+  };
+  window.addEventListener('pointerdown', onFirstInteraction, true);
+  window.addEventListener('keydown', onFirstInteraction, true);
+}
+
+function highlightFilledElements(elements: HTMLElement[]) {
+  for (const el of elements) {
+    const prevOutline = el.style.outline;
+    const prevOffset = el.style.outlineOffset;
+    el.style.outline = '2px solid #22c55e';
+    el.style.outlineOffset = '2px';
+    window.setTimeout(() => {
+      el.style.outline = prevOutline;
+      el.style.outlineOffset = prevOffset;
+    }, 3500);
+  }
+}
+
+async function fetchAppSettings(): Promise<AppSettings | null> {
+  const response = await sendExtensionMessage<{ settings?: AppSettings }>({
     action: 'getAppSettings',
   });
-  if (!response) return false;
-  return response.settings?.globalEnabled !== false;
+  return response?.settings ?? null;
 }
 
 async function fetchActiveProfileId(): Promise<string> {
@@ -146,31 +178,25 @@ async function fetchActiveProfileId(): Promise<string> {
 async function shouldRunAutofill(options: {
   manual: boolean;
   skipConfirmation?: boolean;
-}): Promise<{ allowed: boolean; rule: DomainRule | null; reason?: string }> {
-  const globalEnabled = await fetchGlobalEnabled();
+}): Promise<{ allowed: boolean; reason?: string }> {
+  const settings = await fetchAppSettings();
+  const globalEnabled = settings?.globalEnabled !== false;
   if (!globalEnabled) {
-    return { allowed: false, rule: null, reason: 'Extension is disabled in settings.' };
+    return { allowed: false, reason: 'Extension is disabled in settings.' };
   }
 
-  const rule = await fetchDomainRule();
-  if (!rule) {
-    return { allowed: options.manual, rule: null };
+  if (settings && !isHostAllowed(window.location.hostname, settings.siteAllowlist)) {
+    return {
+      allowed: false,
+      reason: 'This site is not on your allowlist. Add it in Dashboard → Settings.',
+    };
   }
 
-  if (!rule.enabled && !options.manual) {
-    return { allowed: false, rule, reason: 'Automatic autofill is off for this site.' };
+  if (!options.manual && settings?.autoFillOnLoad !== true) {
+    return { allowed: false, reason: 'Auto-fill on page load is off.' };
   }
 
-  if (
-    !options.manual &&
-    rule.requireConfirmation &&
-    !options.skipConfirmation &&
-    !window.confirm('OneClick Autofill AI: Fill detected form fields with your active profile?')
-  ) {
-    return { allowed: false, rule, reason: 'Autofill cancelled.' };
-  }
-
-  return { allowed: true, rule };
+  return { allowed: true };
 }
 
 async function runAutofill(options: {
@@ -194,19 +220,6 @@ async function runAutofill(options: {
     const targetProfileId = options.profileId || (await fetchActiveProfileId());
     const force = options.force === true;
 
-    const credResponse = await sendExtensionMessage<{
-      credential?: { username?: string; password?: string };
-    }>({ action: 'getCredentialForDomain', domain: window.location.hostname });
-    if (credResponse?.credential) {
-      const { username, password } = findLoginFields();
-      if (username && credResponse.credential.username && (force || isFieldEmpty(username))) {
-        fillFormFields([{ element: username, value: credResponse.credential.username }]);
-      }
-      if (password && credResponse.credential.password && (force || isFieldEmpty(password))) {
-        fillFormFields([{ element: password, value: credResponse.credential.password }]);
-      }
-    }
-
     const { elements, metadata } = scanAllFormFields();
     if (elements.length === 0) {
       return { success: false, filledCount: 0, error: 'No fillable fields found on this page.' };
@@ -225,7 +238,11 @@ async function runAutofill(options: {
       return { success: true, filledCount: 0, error: 'All detected fields are already filled.' };
     }
 
-    const jobDescription = extractJobDescription(document);
+    const appSettings = await fetchAppSettings();
+    const jobDescription =
+      manual && appSettings?.ai.useJobDescriptionContext !== false
+        ? extractJobDescription(document)
+        : '';
 
     const matchResponse = (await sendExtensionMessage<{
       matches?: Record<string, { fieldPath: string; confidence: number; matchedValue: string }>;
@@ -242,6 +259,9 @@ async function runAutofill(options: {
     const fillPayload: { element: HTMLElement; value: string; controlKind?: string }[] = [];
     const minConfidence = manual ? 0.4 : AUTO_FILL_CONFIDENCE_THRESHOLD;
     let cachedResumePayloadJson: string | null = null;
+    const previewElements: HTMLElement[] = [];
+    let aiFieldCount = 0;
+    let resumeFieldCount = 0;
 
     const resolveFillValue = async (match: {
       fieldPath: string;
@@ -285,6 +305,11 @@ async function runAutofill(options: {
         value: fillValue,
         controlKind: meta?.controlKind,
       });
+      previewElements.push(el);
+      if (match.fieldPath === AI_GENERATED_FIELD_PATH) aiFieldCount += 1;
+      if (match.fieldPath === 'system.resume' || isDefaultResumeMatchValue(match.matchedValue)) {
+        resumeFieldCount += 1;
+      }
 
       const labelText = meta?.label || meta?.placeholder || '';
 
@@ -309,19 +334,30 @@ async function runAutofill(options: {
         filledCount: 0,
         error:
           geminiWarning ||
-          'No confident field matches for this form. Add your Gemini API key in Settings & AI.',
+          'No confident field matches for this form. Add your Gemini API key in Settings.',
       };
+    }
+
+    if (
+      manual &&
+      !options.skipConfirmation &&
+      appSettings?.showFillPreview !== false
+    ) {
+      const parts = [`Fill ${fillPayload.length} field${fillPayload.length === 1 ? '' : 's'}?`];
+      if (aiFieldCount > 0) {
+        parts.push(`${aiFieldCount} will use AI-generated text`);
+      }
+      if (resumeFieldCount > 0) {
+        parts.push(`${resumeFieldCount} resume upload${resumeFieldCount === 1 ? '' : 's'}`);
+      }
+      if (!window.confirm(`OneClick Autofill AI\n\n${parts.join('\n')}`)) {
+        return { success: false, filledCount: 0, error: 'Autofill cancelled.' };
+      }
     }
 
     const count = await fillFormFieldsAsync(fillPayload);
     lastAutofillAt = Date.now();
-
-    void sendExtensionMessage({
-      action: 'logHistory',
-      domain: window.location.hostname,
-      fieldsCount: count,
-      profileId: targetProfileId,
-    });
+    highlightFilledElements(previewElements);
 
     window.dispatchEvent(
       new CustomEvent('oneclick-autofill-complete', { detail: { filledCount: count } })
@@ -364,9 +400,9 @@ function setupMutationObserver() {
       if (!isExtensionContextValid()) return;
       if (Date.now() - lastAutofillAt < 800) return;
 
-      const rule = await fetchDomainRule();
-      const globalEnabled = await fetchGlobalEnabled();
-      if (!globalEnabled || !rule?.enabled || !rule.autoFillOnLoad) return;
+      const settings = await fetchAppSettings();
+      const globalEnabled = settings?.globalEnabled !== false;
+      if (!globalEnabled || settings?.autoFillOnLoad !== true) return;
 
       await orchestrateAutofill({ manual: false });
     }, 1200);
@@ -501,9 +537,9 @@ function handleAutofillPostMessage(event: MessageEvent): void {
 }
 
 async function checkAutoFillOnLoad() {
-  const rule = await fetchDomainRule();
-  const globalEnabled = await fetchGlobalEnabled();
-  if (!globalEnabled || !rule?.enabled || !rule.autoFillOnLoad) return;
+  const settings = await fetchAppSettings();
+  const globalEnabled = settings?.globalEnabled !== false;
+  if (!globalEnabled || settings?.autoFillOnLoad !== true) return;
 
   setTimeout(() => {
     if (isTopFrame()) {
@@ -548,7 +584,7 @@ function bootstrapContentScript(): void {
   }) as EventListener);
 
   if (isTopFrame()) {
-    initWidget();
+    setupLazyWidgetMount();
   }
   checkAutoFillOnLoad();
   setupMutationObserver();
