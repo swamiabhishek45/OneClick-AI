@@ -6,7 +6,78 @@ import { extractJobDescription } from './JobDescriptionScanner';
 import { fillFormFields, fillFormFieldsAsync, isFieldEmpty } from './AutofillEngine';
 import { AI_GENERATED_FIELD_PATH, AUTO_FILL_CONFIDENCE_THRESHOLD } from '../shared/ai';
 import { DomainRule } from '../shared/types';
+import {
+  addExtensionMessageListener,
+  getExtensionURL,
+  isExtensionContextValid,
+  notifyExtensionContextInvalidated,
+  onExtensionContextInvalidated,
+  sendExtensionMessage,
+} from '../shared/extensionRuntime';
 import '../index.css';
+
+const AUTOFILL_MSG_SOURCE = 'oneclick-autofill';
+
+type AutofillRunResult = { success: boolean; filledCount: number; error?: string };
+
+function isTopFrame(): boolean {
+  try {
+    return window.self === window.top;
+  } catch {
+    return true;
+  }
+}
+
+/** Same-origin iframes (e.g. some embedded apply flows). */
+function getAccessibleDocuments(): Document[] {
+  const docs: Document[] = [document];
+  const seen = new Set<Document>([document]);
+  const queue = Array.from(document.querySelectorAll('iframe'));
+
+  for (const iframe of queue) {
+    try {
+      const doc = iframe.contentDocument;
+      if (doc && !seen.has(doc)) {
+        seen.add(doc);
+        docs.push(doc);
+        queue.push(...Array.from(doc.querySelectorAll('iframe')));
+      }
+    } catch {
+      /* cross-origin */
+    }
+  }
+  return docs;
+}
+
+function scanAllFormFields(): { elements: HTMLElement[]; metadata: import('../shared/ai').ScannedFieldMetadata[] } {
+  const elements: HTMLElement[] = [];
+  const metadata: import('../shared/ai').ScannedFieldMetadata[] = [];
+  for (const doc of getAccessibleDocuments()) {
+    const scan = scanFormFields(doc);
+    elements.push(...scan.elements);
+    metadata.push(...scan.metadata);
+  }
+  return { elements, metadata };
+}
+
+function installGlobalInvalidationHandlers(): void {
+  const swallowIfInvalidated = (event: ErrorEvent | PromiseRejectionEvent) => {
+    const message =
+      event instanceof PromiseRejectionEvent
+        ? String(event.reason?.message ?? event.reason)
+        : String(event.message ?? '');
+    if (
+      message.includes('Extension context invalidated') ||
+      message.includes('Receiving end does not exist')
+    ) {
+      event.preventDefault?.();
+      notifyExtensionContextInvalidated();
+      teardownContentScript();
+    }
+  };
+  window.addEventListener('error', swallowIfInvalidated);
+  window.addEventListener('unhandledrejection', swallowIfInvalidated);
+}
 
 const filledFieldsMap = new Map<HTMLElement, {
   label: string;
@@ -16,9 +87,14 @@ const filledFieldsMap = new Map<HTMLElement, {
 
 let autofillInProgress = false;
 let lastAutofillAt = 0;
+let mutationObserver: MutationObserver | null = null;
 
 function initWidget() {
+  if (!isExtensionContextValid()) return;
   if (document.getElementById('oneclick-autofill-root')) return;
+
+  const cssUrl = getExtensionURL('content.css');
+  if (!cssUrl) return;
 
   const hostDiv = document.createElement('div');
   hostDiv.id = 'oneclick-autofill-root';
@@ -29,7 +105,7 @@ function initWidget() {
 
   const linkEl = document.createElement('link');
   linkEl.rel = 'stylesheet';
-  linkEl.href = chrome.runtime.getURL('content.css');
+  linkEl.href = cssUrl;
   shadowRoot.appendChild(linkEl);
 
   const container = document.createElement('div');
@@ -43,29 +119,27 @@ function initWidget() {
   root.render(<WidgetApp />);
 }
 
-function fetchDomainRule(): Promise<DomainRule | null> {
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage(
-      { action: 'getDomainRule', domain: window.location.hostname },
-      (response) => resolve(response?.rule ?? null)
-    );
+async function fetchDomainRule(): Promise<DomainRule | null> {
+  const response = await sendExtensionMessage<{ rule?: DomainRule }>({
+    action: 'getDomainRule',
+    domain: window.location.hostname,
   });
+  return response?.rule ?? null;
 }
 
-function fetchGlobalEnabled(): Promise<boolean> {
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage({ action: 'getAppSettings' }, (response) => {
-      resolve(response?.settings?.globalEnabled !== false);
-    });
+async function fetchGlobalEnabled(): Promise<boolean> {
+  const response = await sendExtensionMessage<{ settings?: { globalEnabled?: boolean } }>({
+    action: 'getAppSettings',
   });
+  if (!response) return false;
+  return response.settings?.globalEnabled !== false;
 }
 
-function fetchActiveProfileId(): Promise<string> {
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage({ action: 'getActiveProfileId' }, (response) => {
-      resolve(response?.activeProfileId || 'default');
-    });
+async function fetchActiveProfileId(): Promise<string> {
+  const response = await sendExtensionMessage<{ activeProfileId?: string }>({
+    action: 'getActiveProfileId',
   });
+  return response?.activeProfileId || 'default';
 }
 
 async function shouldRunAutofill(options: {
@@ -119,25 +193,20 @@ async function runAutofill(options: {
     const targetProfileId = options.profileId || (await fetchActiveProfileId());
     const force = options.force === true;
 
-    await new Promise<void>((resolve) => {
-      chrome.runtime.sendMessage(
-        { action: 'getCredentialForDomain', domain: window.location.hostname },
-        (response) => {
-          if (response?.credential) {
-            const { username, password } = findLoginFields();
-            if (username && response.credential.username && (force || isFieldEmpty(username))) {
-              fillFormFields([{ element: username, value: response.credential.username }]);
-            }
-            if (password && response.credential.password && (force || isFieldEmpty(password))) {
-              fillFormFields([{ element: password, value: response.credential.password }]);
-            }
-          }
-          resolve();
-        }
-      );
-    });
+    const credResponse = await sendExtensionMessage<{
+      credential?: { username?: string; password?: string };
+    }>({ action: 'getCredentialForDomain', domain: window.location.hostname });
+    if (credResponse?.credential) {
+      const { username, password } = findLoginFields();
+      if (username && credResponse.credential.username && (force || isFieldEmpty(username))) {
+        fillFormFields([{ element: username, value: credResponse.credential.username }]);
+      }
+      if (password && credResponse.credential.password && (force || isFieldEmpty(password))) {
+        fillFormFields([{ element: password, value: credResponse.credential.password }]);
+      }
+    }
 
-    const { elements, metadata } = scanFormFields(document);
+    const { elements, metadata } = scanAllFormFields();
     if (elements.length === 0) {
       return { success: false, filledCount: 0, error: 'No fillable fields found on this page.' };
     }
@@ -157,20 +226,15 @@ async function runAutofill(options: {
 
     const jobDescription = extractJobDescription(document);
 
-    const matchResponse = await new Promise<{
+    const matchResponse = (await sendExtensionMessage<{
       matches?: Record<string, { fieldPath: string; confidence: number; matchedValue: string }>;
       geminiWarning?: string;
-    }>((resolve) => {
-      chrome.runtime.sendMessage(
-        {
-          action: 'matchFields',
-          fields: eligibleMetadata,
-          profileId: targetProfileId,
-          jobDescription,
-        },
-        (response) => resolve(response || {})
-      );
-    });
+    }>({
+      action: 'matchFields',
+      fields: eligibleMetadata,
+      profileId: targetProfileId,
+      jobDescription,
+    })) ?? {};
     const matches = matchResponse.matches || {};
     const geminiWarning = matchResponse.geminiWarning;
 
@@ -224,7 +288,7 @@ async function runAutofill(options: {
     const count = await fillFormFieldsAsync(fillPayload);
     lastAutofillAt = Date.now();
 
-    chrome.runtime.sendMessage({
+    void sendExtensionMessage({
       action: 'logHistory',
       domain: window.location.hostname,
       fieldsCount: count,
@@ -250,7 +314,7 @@ function handleFieldBlur(e: Event) {
     el.type === 'checkbox' ? String((el as HTMLInputElement).checked) : el.value;
 
   if (currentValue !== tracking.originalValue) {
-    chrome.runtime.sendMessage({
+    void sendExtensionMessage({
       action: 'learnCorrection',
       label: tracking.label,
       currentValue,
@@ -265,22 +329,147 @@ function handleFieldBlur(e: Event) {
 let mutationTimeout: ReturnType<typeof setTimeout> | undefined;
 
 function setupMutationObserver() {
-  const observer = new MutationObserver(() => {
+  mutationObserver?.disconnect();
+  mutationObserver = new MutationObserver(() => {
     clearTimeout(mutationTimeout);
     mutationTimeout = setTimeout(async () => {
+      if (!isExtensionContextValid()) return;
       if (Date.now() - lastAutofillAt < 800) return;
 
       const rule = await fetchDomainRule();
       const globalEnabled = await fetchGlobalEnabled();
       if (!globalEnabled || !rule?.enabled || !rule.autoFillOnLoad) return;
 
-      await runAutofill({ manual: false });
+      await orchestrateAutofill({ manual: false });
     }, 1200);
   });
 
   if (document.body) {
-    observer.observe(document.body, { childList: true, subtree: true });
+    mutationObserver.observe(document.body, { childList: true, subtree: true });
   }
+}
+
+function teardownContentScript() {
+  clearTimeout(mutationTimeout);
+  mutationObserver?.disconnect();
+  mutationObserver = null;
+  document.getElementById('oneclick-autofill-root')?.remove();
+}
+
+onExtensionContextInvalidated(teardownContentScript);
+
+/** Top frame: run here + ask cross-origin iframe content scripts via postMessage. */
+async function orchestrateAutofill(options: {
+  profileId?: string;
+  manual?: boolean;
+  force?: boolean;
+  skipConfirmation?: boolean;
+}): Promise<AutofillRunResult> {
+  if (!isTopFrame()) {
+    return runAutofill(options);
+  }
+
+  const iframeCount = document.querySelectorAll('iframe').length;
+  let iframeFilled = 0;
+  let iframeErrors = 0;
+
+  if (iframeCount > 0) {
+    await new Promise<void>((resolve) => {
+      const timeout = window.setTimeout(() => resolve(), 2500);
+      const onMessage = (event: MessageEvent) => {
+        const data = event.data;
+        if (!data || data.source !== AUTOFILL_MSG_SOURCE) return;
+        if (data.action === 'autofill-result') {
+          if (typeof data.filledCount === 'number') {
+            iframeFilled += data.filledCount;
+          }
+          if (data.success === false && data.error) {
+            iframeErrors += 1;
+          }
+        }
+        if (data.action === 'autofill-done') {
+          window.clearTimeout(timeout);
+          window.removeEventListener('message', onMessage);
+          resolve();
+        }
+      };
+      window.addEventListener('message', onMessage);
+
+      for (const iframe of document.querySelectorAll('iframe')) {
+        try {
+          iframe.contentWindow?.postMessage(
+            {
+              source: AUTOFILL_MSG_SOURCE,
+              action: 'run-autofill',
+              profileId: options.profileId,
+              force: options.force === true,
+              skipConfirmation: options.skipConfirmation,
+            },
+            '*'
+          );
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+  }
+
+  const localResult = await runAutofill(options);
+  const totalFilled = localResult.filledCount + iframeFilled;
+
+  if (totalFilled > 0) {
+    return { success: true, filledCount: totalFilled };
+  }
+  if (localResult.success && localResult.filledCount === 0 && iframeFilled === 0) {
+    return localResult;
+  }
+  if (!localResult.success && iframeFilled === 0 && iframeErrors > 0) {
+    return {
+      success: false,
+      filledCount: 0,
+      error: localResult.error || 'Could not fill fields in embedded application frame.',
+    };
+  }
+  return { ...localResult, filledCount: totalFilled, success: totalFilled > 0 || localResult.success };
+}
+
+function handleAutofillPostMessage(event: MessageEvent): void {
+  const data = event.data;
+  if (!data || data.source !== AUTOFILL_MSG_SOURCE || data.action !== 'run-autofill') {
+    return;
+  }
+  if (isTopFrame()) {
+    return;
+  }
+
+  void (async () => {
+    const result = await runAutofill({
+      profileId: data.profileId,
+      manual: true,
+      force: data.force === true,
+      skipConfirmation: data.skipConfirmation,
+    });
+    try {
+      window.parent.postMessage(
+        {
+          source: AUTOFILL_MSG_SOURCE,
+          action: 'autofill-result',
+          filledCount: result.filledCount,
+          success: result.success,
+          error: result.error,
+        },
+        '*'
+      );
+    } catch {
+      /* ignore */
+    } finally {
+      try {
+        window.parent.postMessage({ source: AUTOFILL_MSG_SOURCE, action: 'autofill-done' }, '*');
+      } catch {
+        /* ignore */
+      }
+    }
+  })();
 }
 
 async function checkAutoFillOnLoad() {
@@ -289,30 +478,56 @@ async function checkAutoFillOnLoad() {
   if (!globalEnabled || !rule?.enabled || !rule.autoFillOnLoad) return;
 
   setTimeout(() => {
-    runAutofill({ manual: false });
+    if (isTopFrame()) {
+      void orchestrateAutofill({ manual: false });
+    } else {
+      void runAutofill({ manual: false });
+    }
   }, 900);
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message.action === 'triggerAutofill') {
-    runAutofill({
-      profileId: message.profileId,
+addExtensionMessageListener((message, _sender, sendResponse) => {
+  const payload = message as { action?: string; profileId?: string; force?: boolean };
+  if (payload.action === 'triggerAutofill') {
+    orchestrateAutofill({
+      profileId: payload.profileId,
       manual: true,
-      force: message.force === true,
+      force: payload.force === true,
     }).then(sendResponse);
     return true;
   }
   return false;
 });
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
+function bootstrapContentScript(): void {
+  installGlobalInvalidationHandlers();
+  window.addEventListener('message', handleAutofillPostMessage);
+
+  window.addEventListener('oneclick-request-autofill', ((event: Event) => {
+    const detail = (event as CustomEvent<{
+      profileId?: string;
+      force?: boolean;
+      skipConfirmation?: boolean;
+    }>).detail;
+    void orchestrateAutofill({
+      profileId: detail?.profileId,
+      manual: true,
+      force: detail?.force === true,
+      skipConfirmation: detail?.skipConfirmation,
+    }).then((result) => {
+      window.dispatchEvent(new CustomEvent('oneclick-autofill-result', { detail: result }));
+    });
+  }) as EventListener);
+
+  if (isTopFrame()) {
     initWidget();
-    checkAutoFillOnLoad();
-    setupMutationObserver();
-  });
-} else {
-  initWidget();
+  }
   checkAutoFillOnLoad();
   setupMutationObserver();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bootstrapContentScript);
+} else {
+  bootstrapContentScript();
 }

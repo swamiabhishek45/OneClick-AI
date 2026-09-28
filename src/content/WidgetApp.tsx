@@ -3,7 +3,17 @@ import { Sparkles, Edit3, Settings, Save, X, Minimize2, ToggleLeft, ToggleRight,
 import { UserProfile, DomainRule } from '../shared/types';
 import { ExtensionLogo } from '../shared/ExtensionLogo';
 import { applyThemeSetting, initExtensionTheme, watchThemeChanges } from '../shared/theme';
+import {
+  addExtensionMessageListener,
+  isExtensionContextValid,
+  onExtensionContextInvalidated,
+  sendExtensionMessage,
+} from '../shared/extensionRuntime';
+
 import { findLoginFields } from './FormScanner';
+
+const EXT_RELOAD_MSG =
+  'Extension was reloaded. Refresh this page to use OneClick Autofill AI again.';
 
 export default function WidgetApp() {
   const [expanded, setExpanded] = useState(false);
@@ -97,17 +107,22 @@ export default function WidgetApp() {
     return () => stopWatch();
   }, []);
 
+  useEffect(() => {
+    const stopInvalidated = onExtensionContextInvalidated(() => {
+      showStatus(EXT_RELOAD_MSG, 'error');
+    });
+    return stopInvalidated;
+  }, []);
+
   // Fetch profiles and configuration on mount
   useEffect(() => {
     loadData();
-    
-    // Listen for options/popup change notifications
-    const listener = (message: any) => {
-      if (message.action === 'dataUpdated') {
+
+    const stopMessages = addExtensionMessageListener((message) => {
+      if ((message as { action?: string }).action === 'dataUpdated') {
         loadData();
       }
-    };
-    chrome.runtime.onMessage.addListener(listener);
+    });
 
     const onAutofillDone = (e: Event) => {
       const detail = (e as CustomEvent<{ filledCount: number }>).detail;
@@ -118,7 +133,7 @@ export default function WidgetApp() {
     window.addEventListener('oneclick-autofill-complete', onAutofillDone);
 
     return () => {
-      chrome.runtime.onMessage.removeListener(listener);
+      stopMessages();
       window.removeEventListener('oneclick-autofill-complete', onAutofillDone);
     };
   }, []);
@@ -162,27 +177,30 @@ export default function WidgetApp() {
     );
   };
 
-  const loadData = () => {
-    // Get list of profiles
-    chrome.runtime.sendMessage({ action: 'getProfiles' }, (response) => {
-      if (response && response.profiles) {
-        setProfiles(response.profiles);
-      }
-    });
+  const loadData = async () => {
+    if (!isExtensionContextValid()) return;
 
-    // Get active profile
-    chrome.runtime.sendMessage({ action: 'getActiveProfileId' }, (response) => {
-      if (response && response.activeProfileId) {
-        setActiveProfileId(response.activeProfileId);
-      }
+    const profilesResponse = await sendExtensionMessage<{ profiles?: UserProfile[] }>({
+      action: 'getProfiles',
     });
+    if (profilesResponse?.profiles) {
+      setProfiles(profilesResponse.profiles);
+    }
 
-    // Get domain rule
-    chrome.runtime.sendMessage({ action: 'getDomainRule', domain: window.location.hostname }, (response) => {
-      if (response && response.rule) {
-        setDomainRule(response.rule);
-      }
+    const activeResponse = await sendExtensionMessage<{ activeProfileId?: string }>({
+      action: 'getActiveProfileId',
     });
+    if (activeResponse?.activeProfileId) {
+      setActiveProfileId(activeResponse.activeProfileId);
+    }
+
+    const ruleResponse = await sendExtensionMessage<{ rule?: DomainRule }>({
+      action: 'getDomainRule',
+      domain: window.location.hostname,
+    });
+    if (ruleResponse?.rule) {
+      setDomainRule(ruleResponse.rule);
+    }
   };
 
   // Show status flash
@@ -247,36 +265,62 @@ export default function WidgetApp() {
   // Actions
   const handleAutofill = () => {
     if (isFilling) return;
+    if (!isExtensionContextValid()) {
+      showStatus(EXT_RELOAD_MSG, 'error');
+      return;
+    }
     setIsFilling(true);
-    showStatus("Scanning fields...", "info");
+    showStatus('Scanning fields...', 'info');
 
-    chrome.runtime.sendMessage({
-      action: 'autofillPage',
-      profileId: activeProfileId,
-      force: false,
-    }, (response) => {
+    const onResult = (event: Event) => {
+      window.removeEventListener('oneclick-autofill-result', onResult);
+      window.clearTimeout(timeoutId);
       setIsFilling(false);
-      if (response?.success && (response.filledCount ?? 0) > 0) {
-        showStatus(`Filled ${response.filledCount} field${response.filledCount === 1 ? '' : 's'} successfully!`, "success");
-      } else if (response?.success && response.filledCount === 0) {
-        showStatus(response.error || "All fields are already filled.", "info");
-      } else {
-        showStatus(response?.error || "No matching fields found.", "error");
+      const response = (event as CustomEvent<{
+        success?: boolean;
+        filledCount?: number;
+        error?: string;
+      }>).detail;
+      if (!response) {
+        showStatus(EXT_RELOAD_MSG, 'error');
+        return;
       }
-    });
+      if (response.success && (response.filledCount ?? 0) > 0) {
+        showStatus(
+          `Filled ${response.filledCount} field${response.filledCount === 1 ? '' : 's'} successfully!`,
+          'success'
+        );
+      } else if (response.success && response.filledCount === 0) {
+        showStatus(response.error || 'All fields are already filled.', 'info');
+      } else {
+        showStatus(response.error || 'No matching fields found.', 'error');
+      }
+    };
+
+    window.addEventListener('oneclick-autofill-result', onResult);
+    const timeoutId = window.setTimeout(() => {
+      window.removeEventListener('oneclick-autofill-result', onResult);
+      setIsFilling(false);
+      showStatus('Autofill timed out. Refresh the page and try again.', 'error');
+    }, 45000);
+
+    window.dispatchEvent(
+      new CustomEvent('oneclick-request-autofill', {
+        detail: { profileId: activeProfileId, force: false },
+      })
+    );
   };
 
-  const handleSaveTemplate = () => {
-    chrome.runtime.sendMessage({
+  const handleSaveTemplate = async () => {
+    const response = await sendExtensionMessage<{ success?: boolean; error?: string }>({
       action: 'saveWebsiteTemplate',
-      domain: window.location.hostname
-    }, (response) => {
-      if (response && response.success) {
-        showStatus("Template saved for this domain!", "success");
-      } else {
-        showStatus(response?.error || "Failed to save template.", "error");
-      }
+      domain: window.location.hostname,
     });
+    if (response?.success) {
+      showStatus('Template saved for this domain!', 'success');
+    } else {
+      showStatus(response?.error || EXT_RELOAD_MSG, 'error');
+    }
   };
 
   // Manual Mapping Workflow
@@ -372,26 +416,27 @@ export default function WidgetApp() {
 
     const selector = getSelector(selectedElementForMap);
     
-    chrome.runtime.sendMessage({
-      action: 'saveManualMapping',
-      mapping: {
-        domain: window.location.hostname,
-        selector,
-        fieldPath: selectedFieldForMap
-      }
-    }, (response) => {
-      if (response && response.success) {
-        showStatus("Field mapped successfully!", "success");
+    void (async () => {
+      const response = await sendExtensionMessage<{ success?: boolean }>({
+        action: 'saveManualMapping',
+        mapping: {
+          domain: window.location.hostname,
+          selector,
+          fieldPath: selectedFieldForMap,
+        },
+      });
+      if (response?.success) {
+        showStatus('Field mapped successfully!', 'success');
         setSelectedElementForMap(null);
         setSelectedFieldForMap('');
       } else {
-        showStatus("Failed to save mapping.", "error");
+        showStatus('Failed to save mapping.', 'error');
       }
-    });
+    })();
   };
 
   const handleEditProfile = () => {
-    chrome.runtime.sendMessage({ action: 'openOptionsPage' });
+    void sendExtensionMessage({ action: 'openOptionsPage' });
   };
 
   const toggleDomainEnable = () => {
@@ -402,29 +447,32 @@ export default function WidgetApp() {
       autoFillOnLoad: enabling ? true : domainRule.autoFillOnLoad,
     };
     setDomainRule(updated);
-    chrome.runtime.sendMessage({
-      action: 'saveDomainRule',
-      rule: updated
-    }, () => {
+    void (async () => {
+      await sendExtensionMessage({ action: 'saveDomainRule', rule: updated });
       showStatus(
-        enabling ? "Autofill enabled — forms will fill automatically" : "Autofill disabled for this site",
-        "info"
+        enabling ? 'Autofill enabled — forms will fill automatically' : 'Autofill disabled for this site',
+        'info'
       );
       if (enabling) {
-        chrome.runtime.sendMessage({ action: 'autofillPage', profileId: activeProfileId });
+        window.dispatchEvent(
+          new CustomEvent('oneclick-request-autofill', {
+            detail: { profileId: activeProfileId, force: false },
+          })
+        );
       }
-    });
+    })();
   };
 
   const toggleAutoFillOnLoad = () => {
     const updated = { ...domainRule, autoFillOnLoad: !domainRule.autoFillOnLoad };
     setDomainRule(updated);
-    chrome.runtime.sendMessage({ action: 'saveDomainRule', rule: updated }, () => {
+    void (async () => {
+      await sendExtensionMessage({ action: 'saveDomainRule', rule: updated });
       showStatus(
-        updated.autoFillOnLoad ? "Auto-fill on page load enabled" : "Auto-fill on page load disabled",
-        "info"
+        updated.autoFillOnLoad ? 'Auto-fill on page load enabled' : 'Auto-fill on page load disabled',
+        'info'
       );
-    });
+    })();
   };
 
   const handleSaveCredentials = () => {
@@ -442,20 +490,21 @@ export default function WidgetApp() {
       return;
     }
     
-    chrome.runtime.sendMessage({
-      action: 'saveCredential',
-      credential: {
-        domain: window.location.hostname,
-        username: usernameVal,
-        password: passwordVal
-      }
-    }, (response) => {
-      if (response && response.success) {
-        showStatus("Credentials saved locally!", "success");
+    void (async () => {
+      const response = await sendExtensionMessage<{ success?: boolean; error?: string }>({
+        action: 'saveCredential',
+        credential: {
+          domain: window.location.hostname,
+          username: usernameVal,
+          password: passwordVal,
+        },
+      });
+      if (response?.success) {
+        showStatus('Credentials saved locally!', 'success');
       } else {
-        showStatus(response?.error || "Failed to save credentials.", "error");
+        showStatus(response?.error || 'Failed to save credentials.', 'error');
       }
-    });
+    })();
   };
 
   const activeProfile = profiles.find(p => p.id === activeProfileId) || profiles[0];
@@ -488,7 +537,7 @@ export default function WidgetApp() {
           }`}
           title="OneClick Autofill AI"
         >
-          <ExtensionLogo className="h-12 w-12" />
+          <ExtensionLogo variant="full" className="h-12 w-12" />
         </button>
       )}
 
@@ -641,7 +690,7 @@ export default function WidgetApp() {
             onMouseDown={handlePanelHeaderMouseDown}
           >
             <div className="flex items-center gap-2.5 min-w-0">
-              <ExtensionLogo className="h-8 w-8 rounded-md shrink-0" />
+              <ExtensionLogo variant="mark" className="h-8 w-8 rounded-md shrink-0" />
               <span className="font-semibold text-base leading-tight tracking-wide text-brand-800 truncate">
                 OneClick Autofill AI
               </span>
@@ -680,7 +729,7 @@ export default function WidgetApp() {
               onChange={(e) => {
                 const id = e.target.value;
                 setActiveProfileId(id);
-                chrome.runtime.sendMessage({ action: 'setActiveProfileId', activeProfileId: id });
+                void sendExtensionMessage({ action: 'setActiveProfileId', activeProfileId: id });
               }}
               className="w-full bg-white border border-brand-800/20 rounded-lg px-3 py-2.5 text-sm text-brand-900 focus:outline-none focus:border-brand-600 cursor-pointer"
             >

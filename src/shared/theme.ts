@@ -1,4 +1,10 @@
 import type { AppSettings } from './types';
+import {
+  isExtensionContextValid,
+  notifyExtensionContextInvalidated,
+  readLocalStorage,
+  watchLocalStorage,
+} from './extensionRuntime';
 
 export type ResolvedTheme = 'light' | 'dark';
 
@@ -23,17 +29,12 @@ export function applyThemeSetting(setting: AppSettings['theme'], root?: HTMLElem
   return resolved;
 }
 
-export function getAppSettingsTheme(): Promise<AppSettings['theme']> {
-  return new Promise((resolve) => {
-    if (typeof chrome === 'undefined' || !chrome.storage?.local) {
-      resolve('light');
-      return;
-    }
-    chrome.storage.local.get(['settings'], (result) => {
-      const theme = (result.settings as AppSettings | undefined)?.theme;
-      resolve(theme ?? 'light');
-    });
-  });
+export async function getAppSettingsTheme(): Promise<AppSettings['theme']> {
+  if (!isExtensionContextValid()) {
+    return 'light';
+  }
+  const result = await readLocalStorage<{ settings?: AppSettings }>('settings');
+  return result?.settings?.theme ?? 'light';
 }
 
 export async function initExtensionTheme(root?: HTMLElement | null): Promise<ResolvedTheme> {
@@ -41,16 +42,18 @@ export async function initExtensionTheme(root?: HTMLElement | null): Promise<Res
   return applyThemeSetting(setting, root);
 }
 
-export function watchThemeChanges(onTheme: (resolved: ResolvedTheme, setting: AppSettings['theme']) => void): () => void {
-  if (typeof chrome === 'undefined' || !chrome.storage?.onChanged) {
-    return () => {};
-  }
-
+export function watchThemeChanges(
+  onTheme: (resolved: ResolvedTheme, setting: AppSettings['theme']) => void
+): () => void {
   const media =
     typeof window !== 'undefined' ? window.matchMedia('(prefers-color-scheme: dark)') : null;
 
   const handler = (changes: { [key: string]: chrome.storage.StorageChange }, area: string) => {
     if (area !== 'local' || !changes.settings?.newValue) return;
+    if (!isExtensionContextValid()) {
+      notifyExtensionContextInvalidated();
+      return;
+    }
     const setting = (changes.settings.newValue as AppSettings).theme ?? 'light';
     onTheme(applyThemeSetting(setting), setting);
   };
@@ -63,11 +66,11 @@ export function watchThemeChanges(onTheme: (resolved: ResolvedTheme, setting: Ap
     });
   };
 
-  chrome.storage.onChanged.addListener(handler);
+  const stopStorage = watchLocalStorage(handler);
   media?.addEventListener('change', onSystemChange);
 
   return () => {
-    chrome.storage.onChanged.removeListener(handler);
+    stopStorage();
     media?.removeEventListener('change', onSystemChange);
   };
 }

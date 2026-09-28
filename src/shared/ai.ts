@@ -16,6 +16,8 @@ export interface ScannedFieldMetadata {
   groupName?: string;
   /** Visible choices for radios, checkboxes, and selects (helps AI pick options) */
   optionLabels?: string[];
+  /** File input accept attribute (e.g. .pdf,.doc) */
+  inputAccept?: string;
 }
 
 export interface MatchResult {
@@ -358,19 +360,25 @@ export function matchFieldHeuristically(
     }
   }
 
-  // Check for resume upload input
+  // Check for resume / CV file upload
   if (field.type === 'file') {
-    const isResumeInput = 
-      label.includes('resume') || label.includes('cv') || label.includes('curriculum') ||
-      name.includes('resume') || name.includes('cv') || name.includes('curriculum') ||
-      id.includes('resume') || id.includes('cv') ||
-      surrounding.includes('resume') || surrounding.includes('cv') || surrounding.includes('curriculum vitae');
-      
+    const accept = normalizeFieldText(field.inputAccept || '');
+    const blob = `${label} ${placeholder} ${ariaLabel} ${name} ${id} ${surrounding} ${accept}`;
+    const isResumeInput =
+      /\b(resume|résumé|curriculum vitae|\bcv\b|cover letter|upload.*document|attach.*document)\b/i.test(
+        blob
+      ) ||
+      /\.(pdf|doc|docx)\b/i.test(blob) ||
+      name.includes('resume') ||
+      name.includes('cv') ||
+      id.includes('resume') ||
+      id.includes('cv');
+
     if (isResumeInput) {
       return {
         fieldPath: 'system.resume',
         confidence: 0.95,
-        matchedValue: 'system.resume'
+        matchedValue: 'system.resume',
       };
     }
   }

@@ -126,7 +126,7 @@ export default function PopupApp() {
       {/* Header */}
       <div className="flex justify-between items-center pb-3 border-b border-brand-800/15 dark:border-brand-500/20">
         <div className="flex items-center gap-2">
-          <ExtensionLogo className="h-8 w-8 rounded-lg" />
+          <ExtensionLogo variant="mark" className="h-8 w-8 rounded-lg" />
           <span className="font-semibold text-base ui-heading">OneClick Autofill AI</span>
         </div>
         <button

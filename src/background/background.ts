@@ -40,6 +40,10 @@ function getEffectiveGeminiApiKey(settings: { ai: { geminiApiKey?: string } }): 
   return settings.ai.geminiApiKey?.trim() || '';
 }
 
+void initDb().catch((err) => {
+  console.error('Database initialization failed on worker start:', err);
+});
+
 // Initialize Database on install or worker start
 chrome.runtime.onInstalled.addListener(async () => {
   console.log("OneClick Autofill AI installed.");
@@ -72,6 +76,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function handleMessage(message: any, sender: chrome.runtime.MessageSender, sendResponse: (response: any) => void) {
   try {
+    await initDb();
     switch (message.action) {
       
       case 'openOptionsPage':
@@ -276,8 +281,29 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
           await applyHeuristicMatch(field);
         }
 
+        const unmatchedFileFields = fields.filter(
+          (f) => f.type === 'file' && !matches[f.scanId]?.matchedValue?.trim()
+        );
+        if (unmatchedFileFields.length === 1) {
+          const resumes = await getResumes();
+          const defaultResume = resumes.find((r) => r.isDefault) || resumes[0];
+          if (defaultResume) {
+            const fileField = unmatchedFileFields[0];
+            matches[fileField.scanId] = {
+              fieldPath: 'system.resume',
+              confidence: 0.88,
+              matchedValue: JSON.stringify({
+                fileName: defaultResume.fileName,
+                fileType: defaultResume.fileType,
+                base64Data: defaultResume.base64Data,
+              }),
+            };
+          }
+        }
+
         for (const scanId of Object.keys(matches)) {
-          if (!matches[scanId].matchedValue?.trim()) {
+          const val = matches[scanId].matchedValue;
+          if (val === undefined || val === null || String(val).trim() === '') {
             delete matches[scanId];
           }
         }
@@ -360,11 +386,11 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
 
       case 'autofillPage': {
         const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-        const activeTab = tabs[0];
-        if (activeTab && activeTab.id) {
+        const tabId = sender.tab?.id ?? tabs[0]?.id;
+        if (tabId) {
           const profileId = message.profileId || (await getActiveProfileId());
           chrome.tabs.sendMessage(
-            activeTab.id,
+            tabId,
             {
               action: 'triggerAutofill',
               profileId,
@@ -372,7 +398,10 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender,
             },
             (response) => {
               if (chrome.runtime.lastError) {
-                sendResponse({ success: false, error: 'Autofill not loaded. Please reload the webpage.' });
+                sendResponse({
+                  success: false,
+                  error: 'Autofill not loaded. Refresh this page after reloading the extension.',
+                });
               } else {
                 sendResponse(response || { success: false, filledCount: 0 });
               }

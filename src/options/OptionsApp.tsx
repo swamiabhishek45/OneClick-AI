@@ -474,7 +474,7 @@ export default function OptionsApp() {
           {/* Logo Branding */}
           <div className="p-6 flex items-center gap-2.5 border-b border-brand-800/15">
             <div className="h-9 w-9 rounded-xl overflow-hidden shadow-lg shadow-brand-500/20 ring-1 ring-brand-500/25 shrink-0">
-              <ExtensionLogo className="h-9 w-9" />
+              <ExtensionLogo variant="mark" className="h-9 w-9" />
             </div>
             <div>
               <h1 className="font-bold text-sm text-brand-800 tracking-wide">OneClick AI</h1>

@@ -228,6 +228,10 @@ export function scanFormFields(root: Element | Document = document): {
       controlKind: info.controlKind,
       groupName: info.groupName,
       optionLabels: info.optionLabels,
+      inputAccept:
+        el instanceof HTMLInputElement && el.type === 'file'
+          ? el.getAttribute('accept') || ''
+          : undefined,
     });
   }
 
