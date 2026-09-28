@@ -5,8 +5,7 @@
   "main": "dist/background.js",
   "scripts": {
     "dev": "vite",
-    "icons": "python scripts/generate-brand-icons.py",
-    "build": "npm run icons && tsc && vite build && vite build --config vite.config.content.ts && vite build --config vite.config.background.ts && node post-build.cjs",
+    "build": "tsc && vite build && vite build --config vite.config.content.ts && vite build --config vite.config.background.ts && node post-build.cjs",
     "preview": "vite preview"
   },
   "dependencies": {
