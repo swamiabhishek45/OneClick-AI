@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "OneClick Autofill AI",
+  "name": "OneClick AI",
   "version": "1.0.0",
   "description": "Automatically detect and fill forms on any website using advanced AI recognition with a single click.",
   "permissions": [

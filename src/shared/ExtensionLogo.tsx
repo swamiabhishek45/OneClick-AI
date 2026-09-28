@@ -9,7 +9,7 @@ type ExtensionLogoProps = {
 
 export function ExtensionLogo({
   className = 'h-5 w-5',
-  alt = 'OneClick Autofill AI',
+  alt = 'OneClick AI',
   variant = 'mark',
 }: ExtensionLogoProps) {
   const file = variant === 'full' ? 'icon.png' : 'logo-mark.png';

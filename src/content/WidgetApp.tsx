@@ -19,7 +19,7 @@ import {
 import { isSiteAutoFillEnabled, withSiteAutoFill } from '../shared/domainRules';
 
 const EXT_RELOAD_MSG =
-  'Extension was reloaded. Refresh this page to use OneClick Autofill AI again.';
+  'Extension was reloaded. Refresh this page to use OneClick AI again.';
 
 export default function WidgetApp() {
   const [expanded, setExpanded] = useState(false);
@@ -479,7 +479,7 @@ export default function WidgetApp() {
           className={`flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-full overflow-hidden shadow-lg shadow-brand-600/25 transition-shadow active:scale-95 cursor-pointer hover:shadow-brand-600/40 border-2 border-brand-600/35 bg-cream ${
             isFilling ? 'animate-pulse opacity-80' : ''
           }`}
-          title="OneClick Autofill AI"
+          title="OneClick AI"
         >
           <ExtensionLogo variant="mark" className="h-[78%] w-[78%] pointer-events-none" />
         </button>
@@ -617,7 +617,7 @@ export default function WidgetApp() {
                 <ExtensionLogo variant="mark" className="h-[85%] w-[85%]" />
               </div>
               <span className="font-semibold text-base leading-tight tracking-wide text-brand-800 truncate">
-                OneClick Autofill AI
+                OneClick AI
               </span>
             </div>
             <div className="flex items-center gap-1 shrink-0">
@@ -675,7 +675,7 @@ export default function WidgetApp() {
               className="w-full py-3 px-4 rounded-xl font-semibold text-sm shadow-md shadow-brand-600/25 transition flex items-center justify-center gap-2 cursor-pointer bg-brand-600 hover:bg-brand-700 active:scale-[0.99] text-white disabled:opacity-60"
             >
               <Sparkles className="w-5 h-5 shrink-0" />
-              {isFilling ? 'Filling Form...' : 'Autofill Page'}
+              {isFilling ? 'Filling Form...' : 'Autofill Form'}
             </button>
 
             <button

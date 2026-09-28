@@ -85,7 +85,7 @@ void initDb().catch((err) => {
 });
 
 chrome.runtime.onInstalled.addListener(async () => {
-  console.log('OneClick Autofill AI installed.');
+  console.log('OneClick AI installed.');
   try {
     await initDb();
     const profiles = await getProfiles();

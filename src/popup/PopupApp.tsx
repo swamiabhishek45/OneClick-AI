@@ -86,7 +86,7 @@ export default function PopupApp() {
           <div className="h-8 w-8 shrink-0 rounded-lg overflow-hidden flex items-center justify-center bg-cream border border-brand-800/15 dark:bg-brand-600/35 dark:border-brand-400/35">
             <ExtensionLogo variant="mark" className="h-[85%] w-[85%]" />
           </div>
-          <span className="font-semibold text-base ui-heading">OneClick Autofill AI</span>
+          <span className="font-semibold text-base ui-heading">OneClick AI</span>
         </div>
         <button
           onClick={openDashboard}
