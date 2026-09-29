@@ -6,7 +6,6 @@ import {
   Plus,
   Trash2,
   Save,
-  Database,
   Award,
   Search,
   Settings2,
@@ -486,7 +485,7 @@ export default function OptionsApp() {
 
   return (
     <div className="flex h-screen ui-page overflow-hidden font-sans">
-      <aside className="w-64 ui-sidebar border-r ui-border-subtle flex flex-col justify-between shrink-0 shadow-sm dark:shadow-none">
+      <aside className="w-64 ui-sidebar border-r ui-border-subtle flex flex-col shrink-0 shadow-sm dark:shadow-none">
         <div>
           <div className="p-6 flex items-center gap-2.5 border-b ui-border-subtle">
             <div className="h-9 w-9 shrink-0 rounded-xl overflow-hidden flex items-center justify-center bg-cream border border-brand-800/15 dark:bg-brand-600/35 dark:border-brand-400/35">
@@ -523,22 +522,6 @@ export default function OptionsApp() {
               Settings
             </button>
           </nav>
-        </div>
-
-        <div className="p-4 border-t ui-border-subtle flex flex-col gap-2">
-          <div className="flex items-center gap-2 ui-caption uppercase font-bold tracking-wider">
-            <Database className="w-3.5 h-3.5" />
-            <span>Storage</span>
-          </div>
-          <div className="flex justify-between items-center ui-inset-panel">
-            <div className="text-[10px] ui-muted">
-              <p className="font-semibold">{profiles.length} Profiles</p>
-              <p className="mt-0.5">{resumes.length} Files</p>
-            </div>
-            <div className="text-[10px] text-brand-700 dark:text-cream-200 font-medium bg-cream-100 dark:bg-brand-950/50 px-2 py-1 rounded border ui-border-subtle">
-              Stored locally
-            </div>
-          </div>
         </div>
       </aside>
 
