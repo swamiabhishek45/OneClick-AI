@@ -785,6 +785,7 @@ export async function resolveUnmatchedFieldsWithGemini(
   modelName: string,
   options: {
     jobDescription?: string;
+    applicationMemory?: string;
     includeProfileMapping?: boolean;
     includeGeneratedAnswers?: boolean;
   }
@@ -795,6 +796,7 @@ export async function resolveUnmatchedFieldsWithGemini(
   const includeProfileMapping = options.includeProfileMapping !== false;
   const includeGeneratedAnswers = options.includeGeneratedAnswers !== false;
   const jobDescription = options.jobDescription?.trim() || '';
+  const applicationMemory = options.applicationMemory?.trim() || '';
   let lastBatchError: unknown;
 
   for (const batch of chunkFields(fields)) {
@@ -808,6 +810,9 @@ export async function resolveUnmatchedFieldsWithGemini(
 
 JOB DESCRIPTION (context — may be empty):
 ${jobDescription || '(none detected on page)'}
+
+CANDIDATE MEMORY (authoritative — prefer over inference for stories and motivation):
+${applicationMemory || '(none — use only profile and job description; do not invent facts)'}
 
 CANDIDATE PROFILE (JSON):
 ${JSON.stringify(buildProfileSchema(profile), null, 2)}
@@ -828,17 +833,18 @@ Each scanId maps to:
 
 Rules:
 1. strategy "profile": use when the field clearly maps to profile data. Set fieldPath accordingly. For text inputs the client reads profile; still set answer for select/radio/checkbox.
-2. strategy "generate": use for open-ended questions (e.g. proud of, why this company, motivation, summary, cover letter prompts, achievements, "tell us about yourself", role-specific questions). Questions like "How much do you want this?" mean motivation/interest — NOT salary — write a sincere 2–4 sentence answer. Ground answers in profile${jobDescription ? ' and tailor to the job description' : ''}. Do NOT invent employers, degrees, dates, or certifications not in the profile.
-3. strategy "skip": file uploads or when insufficient data.
-4. Agreements/consent/terms checkboxes: strategy profile, fieldPath "system.agreement", confidence 1.0.
-5. Radio/select: set "answer" to ONE exact visible option label to select.
-6. checkbox-group (multi-select): set "answer" to comma-separated option labels to tick (e.g. "JavaScript, React, Node.js"). Only use labels from optionLabels when provided.
-7. Salary/compensation: prefer jobInfo.currentCTC / jobInfo.expectedCTC from profile; if empty, give a brief professional answer without fabricating numbers unless profile has them.
-8. Textarea answers: 2–5 sentences, first person, professional.
-9. ${includeProfileMapping ? 'Use profile mapping when possible for standard fields (name, email, phone, location, CTC, notice period, etc.).' : 'Prefer generate for non-standard fields.'}
-10. ${includeGeneratedAnswers ? 'Use generate for open-ended questions.' : 'Do not generate — only map to profile or skip.'}
-11. Include an entry for EVERY scanId in this batch (use skip only when truly unknown).
-12. Return ONLY raw JSON, no markdown.`;
+2. strategy "generate": use for open-ended questions (e.g. proud of, why this company, motivation, summary, cover letter prompts, achievements, "tell us about yourself", role-specific questions). Questions like "How much do you want this?" mean motivation/interest — NOT salary — write a sincere 2–4 sentence answer. Ground answers in CANDIDATE MEMORY first, then profile${jobDescription ? ', then tailor using the job description' : ''}. Do NOT invent employers, degrees, dates, metrics, certifications, or project names not present in memory or profile.
+3. strategy "skip": file uploads; numeric or legal facts (salary numbers, visa status, clearance) when not in profile or memory; or when insufficient grounded data exists.
+4. For soft motivation questions when memory has themes but not exact wording: strategy generate with a short first-person answer using only memory + profile + JD facts.
+5. Agreements/consent/terms checkboxes: strategy profile, fieldPath "system.agreement", confidence 1.0.
+6. Radio/select: set "answer" to ONE exact visible option label to select.
+7. checkbox-group (multi-select): set "answer" to comma-separated option labels to tick (e.g. "JavaScript, React, Node.js"). Only use labels from optionLabels when provided.
+8. Salary/compensation: prefer jobInfo.currentCTC / jobInfo.expectedCTC from profile; if empty, skip or give a brief non-numeric professional line—never fabricate numbers.
+9. Textarea answers: 2–5 sentences, first person, professional.
+10. ${includeProfileMapping ? 'Use profile mapping when possible for standard fields (name, email, phone, location, CTC, notice period, etc.).' : 'Prefer generate for non-standard fields.'}
+11. ${includeGeneratedAnswers ? 'Use generate for open-ended questions when grounded data exists.' : 'Do not generate — only map to profile or skip.'}
+12. Include an entry for EVERY scanId in this batch (use skip only when truly unknown or ungrounded).
+13. Return ONLY raw JSON, no markdown.`;
 
     try {
       const raw = await callGeminiJson<unknown>(apiKey, modelName, prompt);

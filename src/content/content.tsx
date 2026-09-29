@@ -259,6 +259,7 @@ async function runAutofill(options: {
   manual?: boolean;
   force?: boolean;
   skipConfirmation?: boolean;
+  jobDescriptionOverride?: string;
 }): Promise<{ success: boolean; filledCount: number; error?: string }> {
   if (autofillInProgress) {
     return { success: false, filledCount: 0, error: 'Autofill already in progress.' };
@@ -302,10 +303,13 @@ async function runAutofill(options: {
     }
 
     const appSettings = await fetchAppSettings();
+    const manualJdEnabled = manual && appSettings?.ai.useJobDescriptionContext !== false;
     const jobDescription =
-      manual && appSettings?.ai.useJobDescriptionContext !== false
-        ? extractJobDescription(document)
-        : '';
+      options.jobDescriptionOverride !== undefined
+        ? options.jobDescriptionOverride
+        : manualJdEnabled
+          ? extractJobDescription(document)
+          : '';
 
     const matchResponse = (await sendExtensionMessage<{
       matches?: Record<string, { fieldPath: string; confidence: number; matchedValue: string }>;
@@ -483,10 +487,29 @@ async function orchestrateAutofill(options: {
     return runAutofill(options);
   }
 
-  const iframes = Array.from(document.querySelectorAll('iframe'));
-  const frameResults = iframes.length > 0 ? collectFrameResults(iframes, options) : null;
+  let runOptions: typeof options & { jobDescriptionOverride?: string } = { ...options };
+  if (options.manual === true) {
+    const appSettings = await fetchAppSettings();
+    if (appSettings?.ai.useJobDescriptionContext !== false) {
+      runOptions = { ...runOptions, jobDescriptionOverride: extractJobDescription(document) };
+    } else {
+      runOptions = { ...runOptions, jobDescriptionOverride: '' };
+    }
+  }
 
-  const localResult = await runAutofill(options);
+  const iframes = Array.from(document.querySelectorAll('iframe'));
+  const iframeJobDescription =
+    runOptions.jobDescriptionOverride !== undefined ? runOptions.jobDescriptionOverride : undefined;
+  const frameResults =
+    iframes.length > 0
+      ? collectFrameResults(iframes, {
+          profileId: options.profileId,
+          force: options.force,
+          jobDescription: iframeJobDescription,
+        })
+      : null;
+
+  const localResult = await runAutofill(runOptions);
   const frames = frameResults ? await frameResults : [];
 
   const framesWithFields = frames.filter((r) => r.hadFields);
@@ -512,7 +535,7 @@ type FrameAutofillResult = AutofillRunResult & { hadFields: boolean };
  */
 function collectFrameResults(
   iframes: HTMLIFrameElement[],
-  options: { profileId?: string; force?: boolean }
+  options: { profileId?: string; force?: boolean; jobDescription?: string }
 ): Promise<FrameAutofillResult[]> {
   return new Promise((resolve) => {
     const acked = new Set<MessageEventSource>();
@@ -562,6 +585,9 @@ function collectFrameResults(
             action: 'run-autofill',
             profileId: options.profileId,
             force: options.force === true,
+            ...(options.jobDescription !== undefined
+              ? { jobDescription: options.jobDescription }
+              : {}),
           },
           '*'
         );
@@ -595,6 +621,8 @@ function handleAutofillPostMessage(event: MessageEvent): void {
       profileId: data.profileId,
       manual: true,
       force: data.force === true,
+      jobDescriptionOverride:
+        typeof data.jobDescription === 'string' ? data.jobDescription : undefined,
     });
     reply({
       action: 'autofill-result',

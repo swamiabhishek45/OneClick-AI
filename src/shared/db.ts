@@ -340,6 +340,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     geminiModel: 'gemini-2.0-flash',
     answerOpenQuestions: true,
     useJobDescriptionContext: true,
+    applicationMemory: '',
   },
   theme: 'light',
   globalEnabled: true,
@@ -359,7 +360,13 @@ function normalizeAppSettings(stored: Partial<AppSettings> | undefined): AppSett
   return {
     ...DEFAULT_SETTINGS,
     ...stored,
-    ai: { ...DEFAULT_SETTINGS.ai, ...aiRaw, provider },
+    ai: {
+      ...DEFAULT_SETTINGS.ai,
+      ...aiRaw,
+      provider,
+      applicationMemory:
+        typeof aiRaw.applicationMemory === 'string' ? aiRaw.applicationMemory : '',
+    },
     learnFromCorrections: stored?.learnFromCorrections !== false,
     siteAllowlist: Array.isArray(stored?.siteAllowlist) ? stored.siteAllowlist : [],
     showFillPreview: false,

@@ -109,6 +109,8 @@ export interface AISettings {
   answerOpenQuestions: boolean;
   /** Include job description text in Gemini prompts (manual fill only) */
   useJobDescriptionContext: boolean;
+  /** Global narrative context for Gemini open-ended answers (achievements, motivation, etc.) */
+  applicationMemory?: string;
 }
 
 export interface DomainRule {

@@ -1171,6 +1171,40 @@ export default function OptionsApp() {
                       Use job description from the page
                     </label>
                   </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-[10px] font-semibold ui-label uppercase mb-1">
+                      Application memory &amp; context
+                    </label>
+                    <textarea
+                      rows={6}
+                      maxLength={8000}
+                      placeholder="Projects you are proud of, why you apply, visa/work auth notes, salary narrative, talking points Gemini should use…"
+                      value={appSettings.ai.applicationMemory ?? ''}
+                      onChange={(e) =>
+                        setAppSettingsState({
+                          ...appSettings,
+                          ai: {
+                            ...appSettings.ai,
+                            applicationMemory: e.target.value.slice(0, 8000),
+                          },
+                        })
+                      }
+                      className="w-full ui-input rounded-lg p-2 text-xs resize-y min-h-[120px]"
+                    />
+                    <p className="text-[10px] ui-muted mt-1">
+                      Used with your profile and job description for open-ended questions. Gemini
+                      should only cite facts from here, your profile, or the JD—not invented
+                      employers or credentials.
+                    </p>
+                    {appSettings.ai.provider === 'hybrid' &&
+                      appSettings.ai.answerOpenQuestions !== false &&
+                      !(appSettings.ai.applicationMemory ?? '').trim() && (
+                        <p className="text-[10px] text-amber-700 dark:text-amber-300 mt-1">
+                          Tip: fill this in for better answers; otherwise Gemini may skip or stay
+                          generic.
+                        </p>
+                      )}
+                  </div>
                 </div>
               )}
             </div>

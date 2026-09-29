@@ -427,6 +427,7 @@ async function handleMessage(
               settings.ai.geminiModel,
               {
                 jobDescription: jdContext,
+                applicationMemory: settings.ai.applicationMemory?.trim() ?? '',
                 includeProfileMapping: true,
                 includeGeneratedAnswers: wantsGeminiAnswers,
               }
