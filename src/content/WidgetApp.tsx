@@ -674,8 +674,8 @@ export default function WidgetApp() {
               disabled={isFilling}
               className="w-full py-3 px-4 rounded-xl font-semibold text-sm shadow-md shadow-brand-600/25 transition flex items-center justify-center gap-2 cursor-pointer bg-brand-600 hover:bg-brand-700 active:scale-[0.99] text-white disabled:opacity-60"
             >
-              <Sparkles className="w-5 h-5 shrink-0" />
-              {isFilling ? 'Filling Form...' : 'Autofill Form'}
+              {/* <Sparkles className="w-5 h-5 shrink-0" /> */}
+              {isFilling ? 'Filling Form...' : 'OneClick'}
             </button>
 
             <button
