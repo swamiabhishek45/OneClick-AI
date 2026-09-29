@@ -35,6 +35,7 @@ import {
   ResumeFilePayload,
   scoreCoverLetterFileField,
   scoreResumeFileField,
+  RESUME_FILE_ASSIGN_MIN_SCORE,
 } from '../shared/resumeAutofill';
 import { buildExportBundle, parseExportBundle } from '../shared/profileExport';
 import { syncProfilesCache } from '../shared/profilesCache';
@@ -338,7 +339,7 @@ async function handleMessage(
           f.type === 'file' && !matches[f.scanId]?.matchedValue?.trim();
 
         const coverCandidates = fields
-          .filter((f) => isUnmatchedFile(f) && scoreCoverLetterFileField(f) >= 80)
+          .filter((f) => isUnmatchedFile(f) && scoreCoverLetterFileField(f) >= 100)
           .sort((a, b) => scoreCoverLetterFileField(b) - scoreCoverLetterFileField(a));
         if (coverCandidates[0] && coverLetterFileReady) {
           const top = coverCandidates[0];
@@ -352,7 +353,10 @@ async function handleMessage(
 
         const hasResumeMatch = Object.values(matches).some((m) => m.fieldPath === 'system.resume');
         const unmatchedFileFields = fields.filter(
-          (f) => isUnmatchedFile(f) && scoreCoverLetterFileField(f) < 80
+          (f) =>
+            isUnmatchedFile(f) &&
+            scoreCoverLetterFileField(f) < 100 &&
+            scoreResumeFileField(f) >= RESUME_FILE_ASSIGN_MIN_SCORE
         );
         if (unmatchedFileFields.length > 0 && resumeReady && !hasResumeMatch) {
           const ranked = unmatchedFileFields
@@ -362,9 +366,10 @@ async function handleMessage(
           const second = ranked[1];
           const pick =
             unmatchedFileFields.length === 1 ||
-            top.score >= 90 ||
-            (top.score >= 50 && (!second || top.score >= second.score + 12));
-          if (pick && top.score >= 35) {
+            top.score >= 95 ||
+            (top.score >= RESUME_FILE_ASSIGN_MIN_SCORE &&
+              (!second || top.score >= second.score + 8));
+          if (pick) {
             assignFileDocumentMatch(
               matches,
               top.field.scanId,

@@ -4,6 +4,9 @@ import { ScannedFieldMetadata } from './ai';
 export const DEFAULT_RESUME_MATCH_VALUE = '__ONECLICK_DEFAULT_RESUME__';
 export const DEFAULT_COVER_LETTER_FILE_VALUE = '__ONECLICK_COVER_LETTER_FILE__';
 
+/** Minimum score to assign the active resume file to a field. */
+export const RESUME_FILE_ASSIGN_MIN_SCORE = 90;
+
 export type ResumeFilePayload = {
   fileName: string;
   fileType: string;
@@ -24,13 +27,35 @@ function resumeFieldBlob(field: ScannedFieldMetadata): string {
   return `${field.label} ${field.placeholder} ${field.ariaLabel} ${field.surroundingText} ${field.htmlName} ${field.htmlId} ${field.inputAccept || ''}`.toLowerCase();
 }
 
+/** Primary label/name/id text (avoid matching incidental page copy in surroundingText). */
+function resumeFieldPrimaryBlob(field: ScannedFieldMetadata): string {
+  return `${field.label} ${field.placeholder} ${field.ariaLabel} ${field.htmlName} ${field.htmlId} ${field.inputAccept || ''}`.toLowerCase();
+}
+
 const COVER_LETTER_PATTERN = /cover\s*letter|coverletter|cover_letter|motivation\s*letter/;
+
+const RESUME_PATTERN = /\b(resume|résumé|curriculum vitae|\bcv\b)\b/;
+
+/** File inputs that must never receive the profile resume PDF. */
+const NON_RESUME_FILE_PATTERN =
+  /cover\s*letter|coverletter|cover_letter|motivation\s*letter|photo|picture|avatar|headshot|profile\s*pic|portrait|selfie|portfolio|transcript|certificate|certification|license|licence|passport|government\s*id|\bid\s*card|visa|work\s*permit|writing\s*sample|reference\s*letter|recommendation|offer\s*letter|immigration|ssn|social\s*security|driver'?s?\s*license|utility\s*bill|proof\s*of|supporting\s*document|additional\s*document|other\s*document|miscellaneous|letter\s*of|transcript|diploma|degree\s*scan|national\s*id|pan\s*card|aadhaar/;
+
+export function isNonResumeDocumentFileField(field: ScannedFieldMetadata): boolean {
+  if ((field.type || '').toLowerCase() !== 'file') return false;
+  const primary = resumeFieldPrimaryBlob(field);
+  if (COVER_LETTER_PATTERN.test(primary)) return true;
+  if (NON_RESUME_FILE_PATTERN.test(primary)) return true;
+  return false;
+}
 
 export function scoreCoverLetterFileField(field: ScannedFieldMetadata): number {
   if ((field.type || '').toLowerCase() !== 'file') return 0;
-  const label = `${field.label} ${field.ariaLabel} ${field.htmlName} ${field.htmlId}`.toLowerCase();
-  if (COVER_LETTER_PATTERN.test(label)) return 100;
-  if (COVER_LETTER_PATTERN.test(resumeFieldBlob(field))) return 80;
+  if (isNonResumeDocumentFileField(field) && !COVER_LETTER_PATTERN.test(resumeFieldPrimaryBlob(field))) {
+    return 0;
+  }
+  const primary = resumeFieldPrimaryBlob(field);
+  if (COVER_LETTER_PATTERN.test(primary)) return 100;
+  if (COVER_LETTER_PATTERN.test(resumeFieldBlob(field))) return 85;
   return 0;
 }
 
@@ -39,25 +64,18 @@ export function isCoverLetterFileField(field: ScannedFieldMetadata): boolean {
 }
 
 export function scoreResumeFileField(field: ScannedFieldMetadata): number {
-  const blob = resumeFieldBlob(field);
-  if (scoreCoverLetterFileField(field) >= 100) return 5;
-  if (/\b(resume|résumé|curriculum vitae|\bcv\b)\b/.test(blob)) return 100;
-  if (COVER_LETTER_PATTERN.test(blob)) return 5;
-  if (/photo|picture|avatar|headshot|portfolio|transcript|certificate|license/.test(blob)) return 10;
-  if (/\battach\b|\bupload\b|application\/pdf|\.pdf|\.doc/.test(blob)) return 70;
-  if (/\bfile\b|\bdocument\b/.test(blob)) return 55;
-  return 35;
+  if ((field.type || '').toLowerCase() !== 'file') return 0;
+  if (isCoverLetterFileField(field)) return 0;
+  if (isNonResumeDocumentFileField(field)) return 0;
+  const primary = resumeFieldPrimaryBlob(field);
+  if (RESUME_PATTERN.test(primary)) return 100;
+  if (RESUME_PATTERN.test(resumeFieldBlob(field))) return 92;
+  return 0;
 }
 
 export function isResumeFileField(field: ScannedFieldMetadata): boolean {
   if ((field.type || '').toLowerCase() !== 'file') return false;
-  if (isCoverLetterFileField(field)) return false;
-  const blob = resumeFieldBlob(field);
-  if (scoreResumeFileField(field) >= 55) return true;
-  return (
-    /\b(resume|résumé|curriculum vitae|\bcv\b|attach|upload)\b/i.test(blob) &&
-    !/cover\s*letter|photo|avatar|picture/.test(blob)
-  );
+  return scoreResumeFileField(field) >= RESUME_FILE_ASSIGN_MIN_SCORE;
 }
 
 export function isCoverLetterTextField(field: ScannedFieldMetadata): boolean {
